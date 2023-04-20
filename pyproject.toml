@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[metadata]
+name = "dredd_test_runners"
+version = "0.0.1"
+
+[tool.setuptools.packages]
+find = {}  # Scan the project directory with the default parameters
+
+[project]
+name = "dredd_test_runners"
+version = "0.0.1"
+authors = [
+  { name="Alastair F. Donaldson", email="alastair.donaldson@imperial.ac.uk" },
+]
+description = "Runner scripts for research involving the Dredd mutation testing tool"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+csmith-runner = "dredd_test_runners.csmith_runner.main:main"
+llvm-test-suite-runner = "dredd_test_runners.llvm_test_suite_runner.main:main"
