@@ -3,7 +3,6 @@ import shutil
 
 import jinja2
 import json
-import hashlib
 import os
 import random
 import stat
@@ -12,7 +11,7 @@ import sys
 import time
 
 import dredd_test_runners.csmith_runner.prepare_csmith_program
-
+from dredd_test_runners.common.hash_file import hash_file
 
 from dredd_test_runners.common.mutation_tree import MutationTree
 from enum import auto, Enum
@@ -29,12 +28,6 @@ class GeneratedProgramStats:
         self.expected_output = expected_output
         self.executable_hash = executable_hash
         self.covered_mutants = covered_mutants
-
-
-def hash_file(filename: str) -> str:
-    md5_hash = hashlib.md5()
-    md5_hash.update(open(filename, 'rb').read())
-    return md5_hash.hexdigest()
 
 
 class ExecutionStatus(Enum):

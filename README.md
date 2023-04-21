@@ -21,4 +21,4 @@ mutants they kill.
 
 Command to invoke llvm-test-suite-runner on Ally's machine:
 
-llvm-test-suite-runner /home/afd/dev/llvm-project/dredd.json /home/afd/dev/llvm-project-mutation-tracking/dredd.json /home/afd/dev/llvm-project/build/bin/clang /home/afd/dev/llvm-project-mutation-tracking/build/bin/clang /home/afd/dev/llvm-test-suite /home/afd/dev/llvm-test-suite/build/compile_commands.json
+llvm-test-suite-runner /home/afd/dev/llvm-project/dredd.json /home/afd/dev/llvm-project-mutation-tracking/dredd.json /home/afd/dev/llvm-project/build/bin /home/afd/dev/llvm-project-mutation-tracking/build/bin /home/afd/dev/llvm-test-suite /home/afd/dev/llvm-test-suite/build/compile_commands.json
