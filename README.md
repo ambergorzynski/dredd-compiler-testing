@@ -3,6 +3,10 @@ Scripts to allow the Dredd mutation testing framework to be used for compiler te
 
 
 
+python -m build
+
+python -m pip install -e .
+
 
 
 
