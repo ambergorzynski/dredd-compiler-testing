@@ -42,3 +42,18 @@ Watch out for left over `clang` processes!
 
 
 
+
+
+
+```
+FILES=""
+for f in `find llvm/lib/Transforms/InstCombine -name "*.cpp"`; do FILES="$FILES $f"; done
+```
+
+```
+/data/afd/dredd/third_party/clang+llvm/bin/dredd -p build/compile_commands.json --mutation-info-file dredd.json $FILES
+```
+
+```
+/data/afd/dredd/third_party/clang+llvm/bin/dredd -p build/compile_commands.json --mutation-info-file dredd.json --only-track-mutant-coverage $FILES
+```
