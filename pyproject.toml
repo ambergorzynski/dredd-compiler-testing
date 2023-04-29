@@ -22,3 +22,4 @@ requires-python = ">=3.10"
 [project.scripts]
 csmith-runner = "dredd_test_runners.csmith_runner.main:main"
 llvm-test-suite-runner = "dredd_test_runners.llvm_test_suite_runner.main:main"
+llvm-regression-tests-runner = "dredd_test_runners.llvm_regression_tests_runner.main:main"

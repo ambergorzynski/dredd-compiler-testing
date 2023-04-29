@@ -1,27 +1,16 @@
 import argparse
 import json
 import os
-import subprocess
-import signal
 import time
-import random
 import tempfile
 
-from collections import deque
 from pathlib import Path
 from dredd_test_runners.common.hash_file import hash_file
 from dredd_test_runners.common.mutation_tree import MutationTree
+from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
+
 from enum import Enum
 from typing import AnyStr, Dict, List, Set, Optional
-
-BATCH_SIZE: int = 1
-
-
-class ProcessResult:
-    def __init__(self, returncode: int, stdout: bytes, stderr: bytes):
-        self.returncode: bytes = returncode
-        self.stdout: bytes = stdout
-        self.stderr: bytes = stderr
 
 
 class KillStatus(Enum):
@@ -33,16 +22,6 @@ class KillStatus(Enum):
     KILL_DIFFERENT_EXIT_CODES = 6
     KILL_DIFFERENT_STDOUT = 7
     KILL_DIFFERENT_STDERR = 8
-
-
-def run_process_with_timeout(cmd: List[str], timeout_seconds: int, env: Optional[Dict[AnyStr, AnyStr]] = None) -> Optional[ProcessResult]:
-    try:
-        process = subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-        process_stdout, process_stderr = process.communicate(timeout=timeout_seconds)
-        return ProcessResult(returncode=process.returncode, stdout=process_stdout, stderr=process_stderr)
-    except subprocess.TimeoutExpired:
-        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-        return None
 
 
 def run_test_with_mutants(mutants: List[int],
@@ -135,7 +114,7 @@ def main():
         mutant_exe_path: Path = Path(temp_dir_for_generated_code, '__mutant_exe')
 
         killed_mutants: Set[int] = set()
-        unkilled_mutants: Dict[int, int] = {mutant: 0 for mutant in range(0, mutation_tree.num_mutations)}
+        unkilled_mutants: Set[int] = set(range(0, mutation_tree.num_mutations))
 
         # Make a work directory in which information about the mutant killing process will be stored. If this already exists
         # that's OK - there may be other processes working on mutant killing, or we may be continuing a job that crashed
@@ -248,7 +227,7 @@ def main():
                 mutant_path = Path("work/killed_mutants/" + str(mutant))
                 if mutant_path.exists():
                     print("Skipping mutant " + str(mutant) + " as it is noted as already killed.")
-                    unkilled_mutants.pop(mutant)
+                    unkilled_mutants.remove(mutant)
                     killed_mutants.add(mutant)
                     already_killed_by_other_tests.append(mutant)
                     continue
@@ -266,7 +245,7 @@ def main():
                     covered_but_not_killed_by_this_test.append(mutant)
                     continue
 
-                unkilled_mutants.pop(mutant)
+                unkilled_mutants.remove(mutant)
                 killed_mutants.add(mutant)
                 killed_by_this_test.append(mutant)
                 print(f"Kill! Mutants killed so far: {len(killed_mutants)}")
