@@ -1,0 +1,16 @@
+diff --git a/llvm/utils/lit/lit/TestRunner.py b/llvm/utils/lit/lit/TestRunner.py
+index 35afa033cf57..4edcfbb3e0e0 100644
+--- a/llvm/utils/lit/lit/TestRunner.py
++++ b/llvm/utils/lit/lit/TestRunner.py
+@@ -1017,8 +1017,10 @@ def executeScript(test, litConfig, tmpBase, commands, cwd):
+             command = litConfig.valgrindArgs + command
+ 
+     try:
++        dredd_env=test.config.environment.copy()
++        dredd_env['DREDD_MUTANT_TRACKING_FILE'] = os.environ['DREDD_MUTANT_TRACKING_FILE']
+         out, err, exitCode = lit.util.executeCommand(command, cwd=cwd,
+-                                       env=test.config.environment,
++                                       env=dredd_env,
+                                        timeout=litConfig.maxIndividualTestTime)
+         return (out, err, exitCode, None)
+     except lit.util.ExecuteCommandTimeoutException as e:
