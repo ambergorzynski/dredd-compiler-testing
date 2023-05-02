@@ -14,3 +14,16 @@ index 35afa033cf57..4edcfbb3e0e0 100644
                                         timeout=litConfig.maxIndividualTestTime)
          return (out, err, exitCode, None)
      except lit.util.ExecuteCommandTimeoutException as e:
+diff --git a/llvm/utils/lit/lit/main.py b/llvm/utils/lit/lit/main.py
+index 41f124a27ad7..d3fdda9d91b7 100755
+--- a/llvm/utils/lit/lit/main.py
++++ b/llvm/utils/lit/lit/main.py
+@@ -106,7 +106,7 @@ def main(builtin_params={}):
+     run_tests(selected_tests, lit_config, opts, len(discovered_tests))
+     elapsed = time.time() - start
+ 
+-    record_test_times(selected_tests, lit_config)
++    #record_test_times(selected_tests, lit_config)
+ 
+     if opts.time_tests:
+         print_histogram(discovered_tests)

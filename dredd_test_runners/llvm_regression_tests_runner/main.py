@@ -100,9 +100,13 @@ def main():
             test_time = test_time_end - test_time_start
             if test_result.returncode != 0:
                 print(f"Skipping test {test_filename} as it returned non-zero result {test_result.returncode}.")
+                print(f"stdout: {test_result.stdout}")
+                print(f"stderr: {test_result.stderr}")
                 continue
             if "PASS" not in test_result.stdout.decode('utf-8'):
                 print(f"Skipping test {test_filename} as it is not expected to pass.")
+                print(f"stdout: {test_result.stdout}")
+                print(f"stderr: {test_result.stderr}")
                 continue
 
             if dredd_covered_mutants_path.exists():
@@ -114,7 +118,7 @@ def main():
             mutant_tracking_cmd = [str(args.mutant_tracking_compiler_bin_dir / "llvm-lit"), test_in_mutant_tracking_build]
             mutant_tracking_result: ProcessResult = run_process_with_timeout(cmd=mutant_tracking_cmd, timeout_seconds=60,
                                                                              env=tracking_environment)
-            if mutant_tracking_result.returncode != 0 or mutant_tracking_result.stdout != test_result.stdout or mutant_tracking_result.stderr != test_result.stderr:
+            if mutant_tracking_result.returncode != 0:
                 print(f"Warning: skipping test {test_filename} as the regular and mutant-tracking compilers yield different results")
                 print(f"Return codes: {test_result.returncode} vs. {mutant_tracking_result.returncode}")
                 print(f"stdout: {test_result.stdout.decode('utf-8')} vs. {mutant_tracking_result.stdout.decode('utf-8')}")
