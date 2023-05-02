@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 
 
-def prepare(original_program: Path, prepared_program: Path, csmith_root: Path) -> None:
+def prepare_csmith_program(original_program: Path, prepared_program: Path, csmith_root: Path) -> None:
     include_files_to_follow: List[str] = ["csmith", "csmith_minimal", "random_inc", "platform_avr", "platform_generic", "platform_msp430"]
     content: str = open(original_program, 'r').read()
     for include_file in include_files_to_follow:

@@ -1,401 +1,37 @@
 import argparse
 import shutil
 
-import jinja2
 import json
 import os
 import random
-import stat
-import subprocess
-import sys
+import tempfile
 import time
 
-import dredd_test_runners.csmith_runner.prepare_csmith_program
+from dredd_test_runners.csmith_runner.prepare_csmith_program import prepare_csmith_program
+from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
+from dredd_test_runners.common.run_test_with_mutants import run_test_with_mutants, KillStatus
+from dredd_test_runners.common.mutation_tree import MutationTree
 from dredd_test_runners.common.hash_file import hash_file
 
-from dredd_test_runners.common.mutation_tree import MutationTree
-from enum import auto, Enum
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import List, Set
 
 
-class GeneratedProgramStats:
-    def __init__(self, name: str, compile_time: float, execution_time: float, expected_output: str,
-                 executable_hash: str, covered_mutants: Set[int]):
-        self.name = name
-        self.compile_time = compile_time
-        self.execution_time = execution_time
-        self.expected_output = expected_output
-        self.executable_hash = executable_hash
-        self.covered_mutants = covered_mutants
-
-
-class ExecutionStatus(Enum):
-    NO_EFFECT = auto()
-    DIFFERENT_BINARIES_SAME_RESULT = auto()
-    COMPILE_FAIL_KILL = auto()
-    COMPILE_TIMEOUT_KILL = auto()
-    RUN_FAIL_KILL = auto()
-    RUN_TIMEOUT_KILL = auto()
-    MISCOMPILATION_KILL = auto()
-
-
-class MutantKiller:
-    def __init__(self,
-                 mutation_tree: MutationTree,
-                 csmith_root: Path,
-                 mutated_compiler_executable: Path,
-                 mutant_tracking_compiler_executable: Path,
-                 max_attempts_per_program: int,
-                 num_simultaneous_mutations: int,
-                 max_consecutive_failed_attempts_per_program: int):
-        self.mutation_tree: MutationTree = mutation_tree
-        self.csmith_root: Path = csmith_root
-        self.mutated_compiler_executable: Path = mutated_compiler_executable
-        self.mutant_tracking_compiler_executable: Path = mutant_tracking_compiler_executable
-        self.max_attempts_per_program: int = max_attempts_per_program
-        self.num_simultaneous_mutations: int = num_simultaneous_mutations
-        self.max_consecutive_failed_attempts_per_program: int = max_consecutive_failed_attempts_per_program
-        # Maps each unkilled mutant to the number of times it has been failed to be killed.
-        self.unkilled_mutants: Dict[int, int] = {mutant: 0 for mutant in range(0, self.mutation_tree.num_mutations)}
-        self.killed_mutants: Dict[int, ExecutionStatus] = {}
-        self.covered_mutants: Set[int] = set()
-        self.round = 0
-
-    def generate_interestingness_test(self,
-                                      program: str,
-                                      mutants: List[int]) -> None:
-        template_loader = jinja2.FileSystemLoader(searchpath="./")
-        template_env = jinja2.Environment(loader=template_loader)
-        template = template_env.get_template("interesting.py.template")
-        open('__interesting.py', 'w').write(template.render(program_to_check=program,
-                                                            csmith_root=self.csmith_root,
-                                                            mutated_compiler_executable=self.
-                                                            mutated_compiler_executable,
-                                                            mutation_ids=','.join([str(m) for m in mutants])))
-        # Make the interestingness test executable.
-        st = os.stat('__interesting.py')
-        os.chmod('__interesting.py', st.st_mode | stat.S_IEXEC)
-
-    def reduce_very_strong_kill(self,
-                                program_to_reduce: str,
-                                mutant: int) -> bool:
-        self.generate_interestingness_test(program=program_to_reduce, mutants=[mutant])
-        creduce_environment = os.environ.copy()
-        creduce_environment['CREDUCE_INCLUDE_PATH'] = \
-            str(self.csmith_root / 'runtime') + ':' + str(self.csmith_root / 'build' / 'runtime')
-        creduce_result: subprocess.CompletedProcess = subprocess.run(['creduce', '__interesting.py', program_to_reduce],
-                                                                     env=creduce_environment)
-        if creduce_result.returncode != 0:
-            print('creduce failed')
-            assert False
-        return True
-
-    def is_killed_by_reduced_test_case(self, reduced_test_case: str, mutant: int) -> bool:
-        self.generate_interestingness_test(program=reduced_test_case, mutants=[mutant])
-        if subprocess.run(['./__interesting.py']).returncode == 0:
-            print(f'Reduced file kills mutant {mutant}')
-            return True
-        print(f'Reduced file does not kill mutant {mutant}')
+def still_testing(start_time_for_overall_testing: float,
+                  time_of_last_kill: float,
+                  total_test_time: int,
+                  maximum_time_since_last_kill: int) -> bool:
+    if 0 < total_test_time < int(time.time() - start_time_for_overall_testing):
         return False
-
-    def try_to_kill_mutants(self,
-                            program_stats: GeneratedProgramStats,
-                            selected_mutants: List[int]) -> ExecutionStatus:
-        generated_program_exe_compiled_with_mutants: str = '__prog_mutated'
-        if os.path.exists(generated_program_exe_compiled_with_mutants):
-            os.remove(generated_program_exe_compiled_with_mutants)
-        try:
-            cmd: List[str] = [self.mutated_compiler_executable,
-                              "-O3",
-                              "-I",
-                              self.csmith_root / "runtime", "-I",
-                              self.csmith_root / "build" / "runtime",
-                              program_stats.name,
-                              "-o",
-                              generated_program_exe_compiled_with_mutants]
-            mutated_environment: Dict[str, str] = os.environ.copy()
-            mutated_environment['DREDD_ENABLED_MUTATION'] = ",".join([str(m) for m in selected_mutants])
-            result = subprocess.run(cmd, timeout=max(5.0, 5.0 * program_stats.compile_time), capture_output=True,
-                                    env=mutated_environment)
-        except subprocess.TimeoutExpired:
-            print("WEAK KILL: Compilation with mutated compiler timed out.")
-            sys.stdout.flush()
-            return ExecutionStatus.COMPILE_TIMEOUT_KILL
-
-        if result.returncode != 0:
-            print("WEAK KILL: Compilation with mutated compiler failed.")
-            sys.stdout.flush()
-            return ExecutionStatus.COMPILE_FAIL_KILL
-
-        print("Compilation with mutated compiler succeeded")
-        sys.stdout.flush()
-        if hash_file(generated_program_exe_compiled_with_mutants) == program_stats.executable_hash:
-            print("Binaries are the same - not interesting")
-            sys.stdout.flush()
-            return ExecutionStatus.NO_EFFECT
-
-        print("Different binaries!")
-        sys.stdout.flush()
-        try:
-            cmd: List[str] = ["./" + generated_program_exe_compiled_with_mutants]
-            result = subprocess.run(cmd, timeout=max(5.0, 10.0 * program_stats.execution_time), capture_output=True)
-            if result.returncode != 0:
-                print("STRONG KILL: Execution of program compiled with mutated compiler failed.")
-                sys.stdout.flush()
-                return ExecutionStatus.RUN_FAIL_KILL
-            if result.stdout.decode('utf-8') != program_stats.expected_output:
-                print("VERY STRONG KILL: Execution results from program compiled with mutated compiler are different!")
-                sys.stdout.flush()
-                self.generate_interestingness_test(program=program_stats.name, mutants=selected_mutants)
-                assert subprocess.run(["./__interesting.py"]).returncode == 0
-                return ExecutionStatus.MISCOMPILATION_KILL
-
-        except subprocess.TimeoutExpired:
-            print("STRONG KILL: Execution of program compiled with mutated compiler timed out.")
-            sys.stdout.flush()
-            return ExecutionStatus.RUN_TIMEOUT_KILL
-
-        print("Same execution results - not interesting")
-        sys.stdout.flush()
-        return ExecutionStatus.DIFFERENT_BINARIES_SAME_RESULT
-
-    def consolidate_kill(self,
-                         mutant: int,
-                         execution_status: ExecutionStatus,
-                         program_stats: GeneratedProgramStats) -> None:
-        relatives: List[int] = self.mutation_tree.get_incompatible_mutation_ids(mutant)
-        print(f"Consolidating kills by considering {len(relatives) - 1} related mutants")
-        miscompilation_kills_to_reduce: List[int] = []
-        if execution_status == ExecutionStatus.MISCOMPILATION_KILL:
-            miscompilation_kills_to_reduce.append(mutant)
-
-        follow_on_kills: int = 0
-        for relative in relatives:
-            if relative == mutant:
-                continue
-
-            if relative in self.killed_mutants:
-                print("Skipping relative: already killed")
-                continue
-
-            if relative not in program_stats.covered_mutants:
-                print("Skipping relative: not covered by current program")
-                continue
-
-            result_for_relative: ExecutionStatus = self.try_to_kill_mutants(program_stats=program_stats,
-                                                                            selected_mutants=[relative])
-            if result_for_relative == ExecutionStatus.NO_EFFECT or result_for_relative \
-                    == ExecutionStatus.DIFFERENT_BINARIES_SAME_RESULT:
-                self.unkilled_mutants[relative] += 1
-                continue
-            self.unkilled_mutants.pop(relative)
-            self.killed_mutants[relative] = result_for_relative
-            follow_on_kills += 1
-            if result_for_relative == ExecutionStatus.MISCOMPILATION_KILL:
-                miscompilation_kills_to_reduce.append(relative)
-
-        print(
-            f"Found {follow_on_kills} follow-on kills, {len(miscompilation_kills_to_reduce)} of which are "
-            "miscompilations")
-        sys.stdout.flush()
-        while len(miscompilation_kills_to_reduce) > 0:
-            mutant: int = miscompilation_kills_to_reduce.pop()
-            reduced_program: str = '__prog_to_reduce.c'
-            shutil.copy(src=program_stats.name, dst=reduced_program)
-            if not self.reduce_very_strong_kill(program_to_reduce=reduced_program, mutant=mutant):
-                # This should never really happen: the mutant was previously confirmed as being miscompilation-killed,
-                # thus it should successfully reduce. It could happen due to nondeterminism.
-                continue
-            killed_by_reduced_test_case: List[int] = [mutant]
-            index: int = 0
-            while index < len(miscompilation_kills_to_reduce):
-                follow_on_mutant: int = miscompilation_kills_to_reduce[index]
-                if self.is_killed_by_reduced_test_case(reduced_test_case=reduced_program, mutant=follow_on_mutant):
-                    killed_by_reduced_test_case.append(follow_on_mutant)
-                    miscompilation_kills_to_reduce.pop(index)
-                else:
-                    index += 1
-            print(f"Found {len(killed_by_reduced_test_case)} miscompilation kills from a reduced test case")
-            shutil.move(src=reduced_program,
-                        dst=f'__kills_{"_".join([str(m) for m in killed_by_reduced_test_case])}.c')
-
-    def search_for_kills_in_mutant_selection(self,
-                                             program_stats: GeneratedProgramStats,
-                                             selected_mutants: List[int]) -> bool:
-        assert len(selected_mutants) > 0
-        print(f"Searching for kills among {len(selected_mutants)} mutant(s)")
-        execution_status: ExecutionStatus = self.try_to_kill_mutants(program_stats=program_stats,
-                                                                     selected_mutants=selected_mutants)
-        sys.stdout.flush()
-        if execution_status == ExecutionStatus.NO_EFFECT or \
-                execution_status == ExecutionStatus.DIFFERENT_BINARIES_SAME_RESULT:
-            for m in selected_mutants:
-                self.unkilled_mutants[m] += 1
-            return False
-
-        if len(selected_mutants) == 1:
-            self.unkilled_mutants.pop(selected_mutants[0])
-            self.killed_mutants[selected_mutants[0]] = execution_status
-            self.consolidate_kill(mutant=selected_mutants[0],
-                                  execution_status=execution_status,
-                                  program_stats=program_stats)
-            return True
-
-        midpoint: int = int(len(selected_mutants) / 2)
-        selected_mutants_lhs: List[int] = selected_mutants[0:midpoint]
-        result: bool = self.search_for_kills_in_mutant_selection(program_stats=program_stats,
-                                                                 selected_mutants=selected_mutants_lhs)
-        selected_mutants_rhs = [m for m in selected_mutants[midpoint:] if m not in self.killed_mutants]
-        result = self.search_for_kills_in_mutant_selection(program_stats=program_stats,
-                                                           selected_mutants=selected_mutants_rhs) or result
-        print(f"Finished searching for kills among {len(selected_mutants)} mutant(s)")
-        return result
-
-    def select_mutants(self, mutants_covered_by_current_program: Set[int]) -> List[int]:
-        available_mutants: Set[int] = {m for m in self.unkilled_mutants if m in mutants_covered_by_current_program and
-                                       self.unkilled_mutants[m] == self.round}
-        if len(available_mutants) == 0:
-            self.round += 1
-            print(f"Moving to round {self.round}")
-            available_mutants = {m for m in self.unkilled_mutants if self.unkilled_mutants[m] == self.round}
-        result: List[int] = []
-        while len(available_mutants) > 0 and len(result) < self.num_simultaneous_mutations:
-            selected_mutant = list(available_mutants)[random.randrange(0, len(available_mutants))]
-            result.append(selected_mutant)
-            available_mutants = available_mutants.difference(
-                set(self.mutation_tree.get_incompatible_mutation_ids(selected_mutant)))
-        return result
-
-    def generate_a_program(self) -> GeneratedProgramStats:
-        generated_program: str = '__prog.c'
-        generated_program_exe_compiled_normally: str = '__prog'
-        generated_program_exe_compiled_with_mutant_tracking: str = '__prog_covered_mutants'
-
-        while True:
-            if os.path.exists(generated_program):
-                os.remove(generated_program)
-            if os.path.exists(generated_program_exe_compiled_normally):
-                os.remove(generated_program_exe_compiled_normally)
-            if os.path.exists("__dredd_covered_mutants"):
-                os.remove("__dredd_covered_mutants")
-            if os.path.exists(generated_program_exe_compiled_with_mutant_tracking):
-                os.remove(generated_program_exe_compiled_with_mutant_tracking)
-            try:
-                # Run csmith until it yields a program
-                cmd: List[str] = [self.csmith_root / "build" / "src" / "csmith", "-o", generated_program]
-                result = subprocess.run(cmd, timeout=10, capture_output=True)
-                if result.returncode != 0:
-                    print("csmith failed")
-                    continue
-            except subprocess.TimeoutExpired:
-                print("csmith timed out")
-                continue
-
-            # Inline some immediate header files into the Csmith-generated program
-            prepare_csmith_program.prepare(Path(generated_program), Path(generated_program), self.csmith_root)
-
-            try:
-                cmd: List[str] = [self.mutated_compiler_executable,
-                                  "-O3",
-                                  "-I",
-                                  self.csmith_root / "runtime",
-                                  "-I",
-                                  self.csmith_root / "build" / "runtime",
-                                  generated_program,
-                                  "-o",
-                                  generated_program_exe_compiled_normally]
-                compile_time_start: float = time.time()
-                result = subprocess.run(cmd, timeout=10, capture_output=True)
-                compile_time_end: float = time.time()
-                if result.returncode != 0:
-                    print("compilation with non-mutated compiler failed")
-                    continue
-            except subprocess.TimeoutExpired:
-                print("compilation with non-mutated compiler timed out")
-                continue
-
-            try:
-                cmd: List[str] = ["./" + generated_program_exe_compiled_normally]
-                execute_time_start: float = time.time()
-                result = subprocess.run(cmd, timeout=10, capture_output=True)
-                execute_time_end: float = time.time()
-                if result.returncode != 0:
-                    print("execution of generated program compiled with non-mutated compiler failed")
-                    continue
-            except subprocess.TimeoutExpired:
-                print("execution of generated program compiled with non-mutated compiler timed out")
-                continue
-
-            expected_output = result.stdout.decode('utf-8')
-            executable_hash = hash_file(generated_program_exe_compiled_normally)
-
-            # Compile the program with the mutant tracking compiler in an environment that writes to said file
-            tracking_environment = os.environ.copy()
-            tracking_environment["DREDD_MUTANT_TRACKING_FILE"] = "__dredd_covered_mutants"
-            result = subprocess.run([self.mutant_tracking_compiler_executable,
-                                     "-O3",
-                                     "-I",
-                                     self.csmith_root / "runtime",
-                                     "-I",
-                                     self.csmith_root / "build" / "runtime",
-                                     generated_program,
-                                     "-o",
-                                     generated_program_exe_compiled_with_mutant_tracking],
-                                    capture_output=True,
-                                    env=tracking_environment)
-            # The program compiled successfully, so it should still compile successfully when mutant tracking is
-            # enabled.
-            assert result.returncode == 0
-
-            # Load file contents into a set
-            covered_mutants: Set[int] = set([int(line.strip()) for line in
-                                             open("__dredd_covered_mutants", 'r').readlines()])
-
-            return GeneratedProgramStats(name=generated_program,
-                                         compile_time=compile_time_end - compile_time_start,
-                                         execution_time=execute_time_end - execute_time_start,
-                                         expected_output=expected_output,
-                                         executable_hash=executable_hash,
-                                         covered_mutants=covered_mutants)
-
-    def go(self):
-        while True:
-            print("Generating a program...")
-            program_stats: GeneratedProgramStats = self.generate_a_program()
-            print("Generated!")
-            print(f"The program covers {len(program_stats.covered_mutants)} out of"
-                  f" {self.mutation_tree.num_mutations} mutants")
-            for m in program_stats.covered_mutants:
-                self.covered_mutants.add(m)
-            num_attempts_for_current_program: int = 0
-            num_consecutive_failed_attempts_for_current_program: int = 0
-            while num_attempts_for_current_program < self.max_attempts_per_program and \
-                    num_consecutive_failed_attempts_for_current_program < \
-                    self.max_consecutive_failed_attempts_per_program:
-                print("Trying a kill attempt")
-                print(f"Kill attempts for this program so far: {num_attempts_for_current_program}")
-                print("Consecutive failed kill attempts for this program: "
-                      f"{num_consecutive_failed_attempts_for_current_program}")
-                print(f"Total mutants: {self.mutation_tree.num_mutations}")
-                print(f"Total covered mutants: {len(self.covered_mutants)}")
-                print(f"Total killed mutants: {len(self.killed_mutants)}")
-                print(f"Total remaining mutants: {len(self.unkilled_mutants)}")
-                print(
-                    f"Mutants still to be tried during round {self.round}: "
-                    f"{len({m for m in self.unkilled_mutants if self.unkilled_mutants[m] == self.round})}")
-                sys.stdout.flush()
-                if self.search_for_kills_in_mutant_selection(selected_mutants=self.select_mutants(
-                        mutants_covered_by_current_program=program_stats.covered_mutants),
-                                                             program_stats=program_stats):
-                    num_consecutive_failed_attempts_for_current_program = 0
-                else:
-                    num_consecutive_failed_attempts_for_current_program += 1
-                assert len(self.killed_mutants) + len(self.unkilled_mutants) == self.mutation_tree.num_mutations
-                num_attempts_for_current_program += 1
+    if 0 < maximum_time_since_last_kill < int(time.time() - time_of_last_kill):
+        return False
+    return True
 
 
 def main():
+    start_time_for_overall_testing: float = time.time()
+    time_of_last_kill: float = start_time_for_overall_testing
+
     parser = argparse.ArgumentParser()
     parser.add_argument("mutation_info_file",
                         help="File containing information about mutations, generated when Dredd was used to actually "
@@ -415,19 +51,32 @@ def main():
     parser.add_argument("csmith_root", help="Path to a checkout of Csmith, assuming that it has been built under "
                                             "'build' beneath this directory.",
                         type=Path)
-    parser.add_argument("--max_consecutive_failed_attempts_per_program",
+    parser.add_argument("--generator_timeout",
+                        default=20,
+                        help="Time in seconds to allow for generation of a program using Csmith.",
+                        type=int)
+    parser.add_argument("--compile_timeout",
+                        default=5,
+                        help="Time in seconds to allow for compilation of a Csmith-generated program (without "
+                             "mutation).",
+                        type=int)
+    parser.add_argument("--run_timeout",
                         default=10,
-                        help="The number of times a given generated program will be compiled and executed in a row "
-                             "with no mutation being killed.",
+                        help="Time in seconds to allow for running a Csmith-generated program (without "
+                             "mutation).",
                         type=int)
-    parser.add_argument("--max_attempts_per_program",
-                        default=100,
-                        help="The number of times a given program will be compiled and executed to look for kills ("
-                             "excluding work done investigating kills) before moving on to the next program.",
+    parser.add_argument("--seed",
+                        help="Seed for random number generator.",
                         type=int)
-    parser.add_argument("--num_simultaneous_mutations",
-                        default=64,
-                        help="The number of mutations that will be enabled simultaneously when looking for kills.",
+    parser.add_argument("--total_test_time",
+                        default=86400,
+                        help="Total time to allow for testing, in seconds. Default is 24 hours. To test indefinitely, "
+                             "pass 0.",
+                        type=int)
+    parser.add_argument("--maximum_time_since_last_kill",
+                        default=86400,
+                        help="Cease testing if a kill has not occurred for this length of time. Default is 24 hours. "
+                             "To test indefinitely, pass 0.",
                         type=int)
     args = parser.parse_args()
 
@@ -448,16 +97,199 @@ def main():
     assert mutation_tree.num_mutations == mutation_tree_for_coverage_tracking.num_mutations
     print("Check complete!")
 
-    mutant_killer: MutantKiller = MutantKiller(mutation_tree=mutation_tree,
-                                               csmith_root=args.csmith_root,
-                                               mutated_compiler_executable=args.mutated_compiler_executable,
-                                               mutant_tracking_compiler_executable=args.
-                                               mutant_tracking_compiler_executable,
-                                               max_attempts_per_program=args.max_attempts_per_program,
-                                               max_consecutive_failed_attempts_per_program=args.
-                                               max_consecutive_failed_attempts_per_program,
-                                               num_simultaneous_mutations=args.num_simultaneous_mutations)
-    mutant_killer.go()
+    if args.seed is not None:
+        random.seed(args.seed)
+
+    with tempfile.TemporaryDirectory() as temp_dir_for_generated_code:
+        csmith_generated_program: Path = Path(temp_dir_for_generated_code, '__prog.c')
+        dredd_covered_mutants_path: Path = Path(temp_dir_for_generated_code, '__dredd_covered_mutants')
+        generated_program_exe_compiled_with_no_mutants = Path(temp_dir_for_generated_code, '__regular.exe')
+        generated_program_exe_compiled_with_mutant_tracking = Path(temp_dir_for_generated_code, '__tracking.exe')
+        mutant_exe = Path(temp_dir_for_generated_code, '__mutant.exe')
+
+        killed_mutants: Set[int] = set()
+        unkilled_mutants: Set[int] = set(range(0, mutation_tree.num_mutations))
+
+        # Make a work directory in which information about the mutant killing process will be stored. If this already
+        # exists that's OK - there may be other processes working on mutant killing, or we may be continuing a job that
+        # crashed previously.
+        Path("work").mkdir(exist_ok=True)
+        Path("work/tests").mkdir(exist_ok=True)
+        Path("work/killed_mutants").mkdir(exist_ok=True)
+
+        while still_testing(total_test_time=args.total_test_time,
+                            maximum_time_since_last_kill=args.maximum_time_since_last_kill,
+                            start_time_for_overall_testing=start_time_for_overall_testing,
+                            time_of_last_kill=time_of_last_kill):
+            if dredd_covered_mutants_path.exists():
+                os.remove(dredd_covered_mutants_path)
+            if csmith_generated_program.exists():
+                os.remove(csmith_generated_program)
+            if generated_program_exe_compiled_with_no_mutants.exists():
+                os.remove(generated_program_exe_compiled_with_no_mutants)
+            if generated_program_exe_compiled_with_mutant_tracking.exists():
+                os.remove(generated_program_exe_compiled_with_mutant_tracking)
+
+            # Generate a Csmith program
+            csmith_seed = random.randint(0, 2 ** 32 - 1)
+            csmith_cmd = [str(args.csmith_root / "build" / "src" / "csmith"), "--seed", str(csmith_seed), "-o",
+                          str(csmith_generated_program)]
+
+            if run_process_with_timeout(cmd=csmith_cmd, timeout_seconds=args.generator_timeout) is None:
+                print(f"Csmith timed out (seed {csmith_seed})")
+                continue
+
+            # Inline some immediate header files into the Csmith-generated program
+            prepare_csmith_program(original_program=csmith_generated_program,
+                                   prepared_program=csmith_generated_program,
+                                   csmith_root=args.csmith_root)
+
+            compiler_args = ["-O3",
+                             "-I",
+                             args.csmith_root / "runtime",
+                             "-I",
+                             args.csmith_root / "build" / "runtime",
+                             csmith_generated_program]
+
+            # Compile the program without mutation.
+            regular_compile_cmd = [args.mutant_tracking_compiler_executable]\
+                + compiler_args\
+                + ["-o", generated_program_exe_compiled_with_no_mutants]
+
+            compile_time_start: float = time.time()
+            regular_compile_result: ProcessResult = run_process_with_timeout(cmd=regular_compile_cmd,
+                                                                             timeout_seconds=args.compile_timeout)
+            compile_time_end: float = time.time()
+            compile_time = compile_time_end - compile_time_start
+
+            if regular_compile_result is None:
+                print("Compiler timeout.")
+                continue
+            if regular_compile_result.returncode != 0:
+                print("Compilation failed without mutants.")
+                print(f"stdout: {regular_compile_result.stdout.decode('utf-8')}")
+                print(f"stderr: {regular_compile_result.stderr.decode('utf-8')}")
+                continue
+
+            regular_hash = hash_file(str(generated_program_exe_compiled_with_no_mutants))
+
+            run_time_start: float = time.time()
+            regular_execution_result: ProcessResult = run_process_with_timeout(
+                cmd=[str(generated_program_exe_compiled_with_no_mutants)], timeout_seconds=args.run_timeout)
+            run_time_end: float = time.time()
+            run_time = run_time_end - run_time_start
+
+            if regular_execution_result is None:
+                print("Runtime timeout.")
+                continue
+            if regular_execution_result.returncode != 0:
+                print("Execution of generated program failed without mutants.")
+                continue
+
+            # Compile the program with the mutant tracking compiler.
+            tracking_environment = os.environ.copy()
+            tracking_environment["DREDD_MUTANT_TRACKING_FILE"] = str(dredd_covered_mutants_path)
+            tracking_compile_cmd = [args.mutant_tracking_compiler_executable]\
+                + compiler_args\
+                + ["-o", generated_program_exe_compiled_with_mutant_tracking]
+            if run_process_with_timeout(cmd=tracking_compile_cmd, timeout_seconds=args.compile_timeout,
+                                        env=tracking_environment) is None:
+                print("Mutant tracking compilation timed out.")
+                continue
+
+            # Try to create a directory for this Csmith test. It is very unlikely that it already exists, but this could
+            # happen if two test workers pick the same seed. If that happens, this worker will skip the test.
+            csmith_test_name: str = "csmith_" + str(csmith_seed)
+            test_output_directory: Path = Path("work/tests/" + csmith_test_name)
+            try:
+                test_output_directory.mkdir()
+            except FileExistsError:
+                print(f"Skipping seed {csmith_seed} as a directory for it already exists")
+                continue
+            shutil.copy(src=csmith_generated_program, dst=test_output_directory / "prog.c")
+
+            # Load file contents into a list. We go from list to set to list to eliminate duplicates.
+            covered_by_this_test: List[int] = list(set([int(line.strip()) for line in
+                                                        open(dredd_covered_mutants_path, 'r').readlines()]))
+            covered_by_this_test.sort()
+            candidate_mutants_for_this_test: List[int] = ([m for m in covered_by_this_test if m not in killed_mutants])
+            print("Number of mutants to try: " + str(len(candidate_mutants_for_this_test)))
+
+            already_killed_by_other_tests: List[int] = ([m for m in covered_by_this_test if m in killed_mutants])
+            killed_by_this_test: List[int] = []
+            covered_but_not_killed_by_this_test: List[int] = []
+
+            for mutant in candidate_mutants_for_this_test:
+
+                if not still_testing(total_test_time=args.total_test_time,
+                                     maximum_time_since_last_kill=args.maximum_time_since_last_kill,
+                                     start_time_for_overall_testing=start_time_for_overall_testing,
+                                     time_of_last_kill=time_of_last_kill):
+                    break
+
+                mutant_path = Path("work/killed_mutants/" + str(mutant))
+                if mutant_path.exists():
+                    print("Skipping mutant " + str(mutant) + " as it is noted as already killed.")
+                    unkilled_mutants.remove(mutant)
+                    killed_mutants.add(mutant)
+                    already_killed_by_other_tests.append(mutant)
+                    continue
+                print("Trying mutant " + str(mutant))
+                mutant_result = run_test_with_mutants(mutants=[mutant],
+                                                      compiler_path=str(args.mutated_compiler_executable),
+                                                      compiler_args=compiler_args,
+                                                      compile_time=compile_time,
+                                                      run_time=run_time,
+                                                      binary_hash_non_mutated=regular_hash,
+                                                      execution_result_non_mutated=regular_execution_result,
+                                                      mutant_exe_path=mutant_exe)
+                print("Mutant result: " + str(mutant_result))
+                if mutant_result == KillStatus.SURVIVED_IDENTICAL \
+                        or mutant_result == KillStatus.SURVIVED_BINARY_DIFFERENCE:
+                    covered_but_not_killed_by_this_test.append(mutant)
+                    continue
+
+                unkilled_mutants.remove(mutant)
+                killed_mutants.add(mutant)
+                killed_by_this_test.append(mutant)
+                time_of_last_kill = time.time()
+                print(f"Kill! Mutants killed so far: {len(killed_mutants)}")
+                try:
+                    mutant_path.mkdir()
+                    print("Writing kill info to file.")
+                    with open(mutant_path / "kill_info.json", "w") as outfile:
+                        json.dump({"killing_test": csmith_test_name,
+                                   "kill_type": str(mutant_result)}, outfile)
+                except FileExistsError:
+                    print(f"Mutant {mutant} was independently discovered to be killed.")
+                    continue
+
+            terminating_test_process: bool = not still_testing(
+                total_test_time=args.total_test_time,
+                maximum_time_since_last_kill=args.maximum_time_since_last_kill,
+                start_time_for_overall_testing=start_time_for_overall_testing,
+                time_of_last_kill=time_of_last_kill)
+
+            all_considered_mutants = killed_by_this_test \
+                + covered_but_not_killed_by_this_test \
+                + already_killed_by_other_tests
+            all_considered_mutants.sort()
+
+            if covered_by_this_test != all_considered_mutants:
+                assert terminating_test_process
+                terminated_early: bool = True
+            else:
+                terminated_early: bool = False
+
+            killed_by_this_test.sort()
+            covered_but_not_killed_by_this_test.sort()
+            already_killed_by_other_tests.sort()
+            with open(test_output_directory / "kill_summary.json", "w") as outfile:
+                json.dump({"terminated_early": terminated_early,
+                           "covered_mutants": covered_by_this_test,
+                           "killed_mutants": killed_by_this_test,
+                           "skipped_mutants": already_killed_by_other_tests,
+                           "survived_mutants": covered_but_not_killed_by_this_test}, outfile)
 
 
 if __name__ == '__main__':
