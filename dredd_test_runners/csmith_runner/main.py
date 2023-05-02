@@ -152,7 +152,7 @@ def main():
                              csmith_generated_program]
 
             # Compile the program without mutation.
-            regular_compile_cmd = [args.mutant_tracking_compiler_executable]\
+            regular_compile_cmd = [args.mutated_compiler_executable]\
                 + compiler_args\
                 + ["-o", generated_program_exe_compiled_with_no_mutants]
 
