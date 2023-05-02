@@ -36,9 +36,11 @@ def main():
     parser.add_argument("mutant_tracking_compiler_bin_dir",
                         help="Path to the bin directory of the compiler instrumented to track mutants.",
                         type=Path)
-    parser.add_argument("regression_tests_root", help="Path to a directory under which the regression tests to be run will be found.",
+    parser.add_argument("regression_tests_root",
+                        help="Path to a directory under which the regression tests to be run will be found.",
                         type=Path)
-    parser.add_argument("regression_tests_mutant_tracking_root", help="Corresponding path to this directory under the mutant tracking build of the compiler.",
+    parser.add_argument("regression_tests_mutant_tracking_root",
+                        help="Corresponding path to this directory under the mutant tracking build of the compiler.",
                         type=Path)
     args = parser.parse_args()
 
@@ -65,9 +67,9 @@ def main():
         killed_mutants: Set[int] = set()
         unkilled_mutants: Set[int] = set(range(0, mutation_tree.num_mutations))
 
-        # Make a work directory in which information about the mutant killing process will be stored. If this already exists
-        # that's OK - there may be other processes working on mutant killing, or we may be continuing a job that crashed
-        # previously.
+        # Make a work directory in which information about the mutant killing process will be stored. If this already
+        # exists that's OK - there may be other processes working on mutant killing, or we may be continuing a job that
+        # crashed previously.
         Path("work").mkdir(exist_ok=True)
         Path("work/tests").mkdir(exist_ok=True)
         Path("work/killed_mutants").mkdir(exist_ok=True)
@@ -114,20 +116,27 @@ def main():
 
             tracking_environment: Dict[AnyStr, AnyStr] = os.environ.copy()
             tracking_environment["DREDD_MUTANT_TRACKING_FILE"] = str(dredd_covered_mutants_path)
-            test_in_mutant_tracking_build = str(args.regression_tests_mutant_tracking_root) + test_filename[len(str(args.regression_tests_root)):]
-            mutant_tracking_cmd = [str(args.mutant_tracking_compiler_bin_dir / "llvm-lit"), test_in_mutant_tracking_build]
-            mutant_tracking_result: ProcessResult = run_process_with_timeout(cmd=mutant_tracking_cmd, timeout_seconds=60,
+            test_in_mutant_tracking_build = str(args.regression_tests_mutant_tracking_root) + test_filename[len(str(
+                args.regression_tests_root)):]
+            mutant_tracking_cmd = [str(args.mutant_tracking_compiler_bin_dir / "llvm-lit"),
+                                   test_in_mutant_tracking_build]
+            mutant_tracking_result: ProcessResult = run_process_with_timeout(cmd=mutant_tracking_cmd,
+                                                                             timeout_seconds=60,
                                                                              env=tracking_environment)
             if mutant_tracking_result.returncode != 0:
-                print(f"Warning: skipping test {test_filename} as the regular and mutant-tracking compilers yield different results")
+                print(
+                    f"Warning: skipping test {test_filename} "
+                    f"as the regular and mutant-tracking compilers yield different results")
                 print(f"Return codes: {test_result.returncode} vs. {mutant_tracking_result.returncode}")
-                print(f"stdout: {test_result.stdout.decode('utf-8')} vs. {mutant_tracking_result.stdout.decode('utf-8')}")
-                print(f"stdout: {test_result.stderr.decode('utf-8')} vs. {mutant_tracking_result.stderr.decode('utf-8')}")
+                print(
+                    f"stdout: {test_result.stdout.decode('utf-8')} vs. {mutant_tracking_result.stdout.decode('utf-8')}")
+                print(
+                    f"stdout: {test_result.stderr.decode('utf-8')} vs. {mutant_tracking_result.stderr.decode('utf-8')}")
                 continue
 
             # Load file contents into a list. We go from list to set to list to eliminate duplicates.
             covered_by_this_test: List[int] = list(set([int(line.strip()) for line in
-                                             open(dredd_covered_mutants_path, 'r').readlines()]))
+                                                        open(dredd_covered_mutants_path, 'r').readlines()]))
             covered_by_this_test.sort()
             candidate_mutants_for_this_test: List[int] = ([m for m in covered_by_this_test if m not in killed_mutants])
             print("Number of mutants to try: " + str(len(candidate_mutants_for_this_test)))
@@ -153,7 +162,12 @@ def main():
                     timeout_seconds=int(max(1.0, 5.0 * test_time)),
                     env=mutated_environment)
 
-                mutant_result: KillStatus = KillStatus.KILL_TIMEOUT if mutated_test_result is None else KillStatus.KILL_FAIL if mutated_test_result.returncode != 0 else KillStatus.SURVIVED
+                if mutated_test_result is None:
+                    mutant_result = KillStatus.KILL_TIMEOUT
+                elif mutated_test_result.returncode != 0:
+                    mutant_result = KillStatus.KILL_FAIL
+                else:
+                    mutant_result = KillStatus.SURVIVED
 
                 print("Mutant result: " + str(mutant_result))
                 if mutant_result == KillStatus.SURVIVED:
@@ -168,13 +182,16 @@ def main():
                     mutant_path.mkdir()
                     print("Writing kill info to file.")
                     with open(mutant_path / "kill_info.json", "w") as outfile:
-                        json.dump({"killing_test": test_filename_without_prefix, "kill_type": str(mutant_result)}, outfile)
+                        json.dump({"killing_test": test_filename_without_prefix, "kill_type": str(mutant_result)},
+                                  outfile)
                 except FileExistsError:
                     print(f"Mutant {mutant} was independently discovered to be killed.")
                     continue
 
             # Now that analysis for this test case has completed, write summary information to its directory
-            all_considered_mutants = killed_by_this_test + covered_but_not_killed_by_this_test + already_killed_by_other_tests
+            all_considered_mutants = killed_by_this_test \
+                + covered_but_not_killed_by_this_test \
+                + already_killed_by_other_tests
             all_considered_mutants.sort()
             # We should have put every mutant into some bucket or other
             assert covered_by_this_test == all_considered_mutants

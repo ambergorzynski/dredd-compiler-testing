@@ -12,7 +12,9 @@ class ProcessResult:
         self.stderr: bytes = stderr
 
 
-def run_process_with_timeout(cmd: List[str], timeout_seconds: int, env: Optional[Dict[AnyStr, AnyStr]] = None) -> Optional[ProcessResult]:
+def run_process_with_timeout(cmd: List[str], timeout_seconds: int, env: Optional[Dict[AnyStr, AnyStr]] = None) ->\
+        Optional[ProcessResult]:
+    process = None
     try:
         process = subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         process_stdout, process_stderr = process.communicate(timeout=timeout_seconds)

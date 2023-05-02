@@ -37,7 +37,8 @@ class MutationTree:
                 self.num_nodes += 1
                 populate(child_json_node, child_node_id)
             self.nodes[node_id] = MutationTreeNode(get_mutation_ids_for_json_node(json_node), children)
-            self.num_mutations = max(self.num_mutations, functools.reduce(max, self.nodes[node_id].mutation_ids, 0))
+            temp: int = functools.reduce(max, self.nodes[node_id].mutation_ids, 0)
+            self.num_mutations = max(self.num_mutations, temp)
             for mutation_id in self.nodes[node_id].mutation_ids:
                 self.mutation_id_to_node_id[mutation_id] = node_id
 

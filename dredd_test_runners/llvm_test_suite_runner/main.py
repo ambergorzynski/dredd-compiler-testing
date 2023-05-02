@@ -10,7 +10,7 @@ from dredd_test_runners.common.mutation_tree import MutationTree
 from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
 
 from enum import Enum
-from typing import AnyStr, Dict, List, Set, Optional
+from typing import AnyStr, List, Set
 
 
 class KillStatus(Enum):
@@ -116,9 +116,9 @@ def main():
         killed_mutants: Set[int] = set()
         unkilled_mutants: Set[int] = set(range(0, mutation_tree.num_mutations))
 
-        # Make a work directory in which information about the mutant killing process will be stored. If this already exists
-        # that's OK - there may be other processes working on mutant killing, or we may be continuing a job that crashed
-        # previously.
+        # Make a work directory in which information about the mutant killing process will be stored. If this already
+        # exists that's OK - there may be other processes working on mutant killing, or we may be continuing a job that
+        # crashed previously.
         Path("work").mkdir(exist_ok=True)
         Path("work/tests").mkdir(exist_ok=True)
         Path("work/killed_mutants").mkdir(exist_ok=True)
@@ -176,8 +176,8 @@ def main():
                 os.remove(dredd_covered_mutants_path)
 
             regular_cmd = [str(args.mutated_compiler_bin_dir) + os.sep
-                           + "clang" if is_c else str(args.mutated_compiler_bin_dir) + os.sep + "clang++"] + compiler_args \
-                          + ['-o', str(regular_exe_path)]
+                           + "clang" if is_c else str(
+                args.mutated_compiler_bin_dir) + os.sep + "clang++"] + compiler_args + ['-o', str(regular_exe_path)]
             print("Compile command:")
             print(' '.join(regular_cmd))
             compile_time_start: float = time.time()
@@ -196,24 +196,28 @@ def main():
             regular_hash = hash_file(str(regular_exe_path))
 
             run_time_start: float = time.time()
-            regular_execution_result: ProcessResult = run_process_with_timeout(cmd=[str(regular_exe_path)], timeout_seconds=60)
+            regular_execution_result: ProcessResult = run_process_with_timeout(cmd=[str(regular_exe_path)],
+                                                                               timeout_seconds=60)
             assert regular_execution_result is not None  # We do not expect regular compilation to time out.
             run_time_end: float = time.time()
             run_time = run_time_end - run_time_start
 
             tracking_environment: dict[AnyStr, AnyStr] = os.environ.copy()
             tracking_environment["DREDD_MUTANT_TRACKING_FILE"] = str(dredd_covered_mutants_path)
-            mutant_tracking_cmd = [str(args.mutant_tracking_compiler_bin_dir) + os.sep + "clang" if is_c else str(
-                args.mutant_tracking_compiler_bin_dir) + os.sep + "clang++"] + compiler_args + ['-o', str(mutant_tracking_exe_path)]
-            mutant_tracking_result: ProcessResult = run_process_with_timeout(cmd=mutant_tracking_cmd, timeout_seconds=60,
-                                                                                 env=tracking_environment)
+            exe_name: str = "clang" if is_c else "clang++"
+            mutant_tracking_cmd = [str(args.mutant_tracking_compiler_bin_dir) + os.sep + exe_name]\
+                + compiler_args\
+                + ['-o', str(mutant_tracking_exe_path)]
+            run_process_with_timeout(cmd=mutant_tracking_cmd,
+                                     timeout_seconds=60,
+                                     env=tracking_environment)
 
             # Sanity check: confirm that the mutant tracking exe is no different to the regular exe.
             assert regular_hash == hash_file(str(mutant_tracking_exe_path))
 
             # Load file contents into a list. We go from list to set to list to eliminate duplicates.
             covered_by_this_test: List[int] = list(set([int(line.strip()) for line in
-                                             open(dredd_covered_mutants_path, 'r').readlines()]))
+                                                        open(dredd_covered_mutants_path, 'r').readlines()]))
             covered_by_this_test.sort()
 
             candidate_mutants_for_this_test: List[int] = ([m for m in covered_by_this_test if m not in killed_mutants])
@@ -233,7 +237,8 @@ def main():
                     continue
                 print("Trying mutant " + str(mutant))
                 mutant_result = run_test_with_mutants(mutants=[mutant],
-                                                      compiler_path=str(args.mutated_compiler_bin_dir) + os.sep + "clang" if is_c else str(args.mutated_compiler_bin_dir) + os.sep + "clang++",
+                                                      compiler_path=str(
+                                                          args.mutated_compiler_bin_dir) + os.sep + exe_name,
                                                       compiler_args=compiler_args,
                                                       compile_time=compile_time,
                                                       run_time=run_time,
@@ -241,7 +246,8 @@ def main():
                                                       execution_result_non_mutated=regular_execution_result,
                                                       mutant_exe_path=mutant_exe_path)
                 print("Mutant result: " + str(mutant_result))
-                if mutant_result == KillStatus.SURVIVED_IDENTICAL or mutant_result == KillStatus.SURVIVED_BINARY_DIFFERENCE:
+                if mutant_result == KillStatus.SURVIVED_IDENTICAL\
+                        or mutant_result == KillStatus.SURVIVED_BINARY_DIFFERENCE:
                     covered_but_not_killed_by_this_test.append(mutant)
                     continue
 
@@ -253,13 +259,16 @@ def main():
                     mutant_path.mkdir()
                     print("Writing kill info to file.")
                     with open(mutant_path / "kill_info.json", "w") as outfile:
-                        json.dump({"killing_test": test_filename_without_llvm_test_suite_prefix, "kill_type": str(mutant_result)}, outfile)
+                        json.dump({"killing_test": test_filename_without_llvm_test_suite_prefix,
+                                   "kill_type": str(mutant_result)}, outfile)
                 except FileExistsError:
                     print(f"Mutant {mutant} was independently discovered to be killed.")
                     continue
 
             # Now that analysis for this test case has completed, write summary information to its directory
-            all_considered_mutants = killed_by_this_test + covered_but_not_killed_by_this_test + already_killed_by_other_tests
+            all_considered_mutants = killed_by_this_test\
+                + covered_but_not_killed_by_this_test\
+                + already_killed_by_other_tests
             all_considered_mutants.sort()
             # We should have put every mutant into some bucket or other
             assert covered_by_this_test == all_considered_mutants
