@@ -1,5 +1,4 @@
 import argparse
-import glob
 import json
 import os
 import tempfile
@@ -74,7 +73,13 @@ def main():
         Path("work/tests").mkdir(exist_ok=True)
         Path("work/killed_mutants").mkdir(exist_ok=True)
 
-        tests = glob.glob(str(args.regression_tests_root) + os.sep + "*.ll")
+        # Find all the regression tests under the regression tests root directory. These are all the files with the
+        # '.ll' extension.
+        tests = []
+        for root, _, files in os.walk(args.regression_tests_root):
+            for file in files:
+                if os.path.splitext(file)[1] == ".ll":
+                    tests.append(os.path.join(root, file))
         tests.sort()
 
         for test_filename in tests:
