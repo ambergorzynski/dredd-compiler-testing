@@ -7,7 +7,6 @@ import random
 import tempfile
 import time
 
-from dredd_test_runners.csmith_runner.prepare_csmith_program import prepare_csmith_program
 from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
 from dredd_test_runners.common.run_test_with_mutants import run_test_with_mutants, KillStatus
 from dredd_test_runners.common.mutation_tree import MutationTree
@@ -15,6 +14,20 @@ from dredd_test_runners.common.hash_file import hash_file
 
 from pathlib import Path
 from typing import List, Set
+
+
+def prepare_yarpgen_program(yarpgen_out_dir: Path, prepared_program: Path) -> None:
+    yarpgen_files = [os.path.basename(f) for f in yarpgen_out_dir.glob("*")]
+    yarpgen_files.sort()
+    assert yarpgen_files == ["driver.c", "func.c", "init.h"]
+    combined: str = ""
+    for line in open(yarpgen_out_dir / "func.c", 'r').readlines():
+        if line == '#include "init.h"\n':
+            combined += open(yarpgen_out_dir / "init.h", 'r').read()
+        else:
+            combined += line
+    combined += open(yarpgen_out_dir / "driver.c", 'r').read()
+    open(prepared_program, 'w').write(combined)
 
 
 def still_testing(start_time_for_overall_testing: float,
@@ -48,8 +61,8 @@ def main():
     parser.add_argument("mutant_tracking_compiler_executable",
                         help="Path to the executable for the compiler instrumented to track mutants.",
                         type=Path)
-    parser.add_argument("csmith_root", help="Path to a checkout of Csmith, assuming that it has been built under "
-                                            "'build' beneath this directory.",
+    parser.add_argument("yarpgen_root", help="Path to a checkout of YARPgen, assuming that it has been built under "
+                                             "'build' beneath this directory.",
                         type=Path)
     parser.add_argument("--generator_timeout",
                         default=20,
@@ -99,11 +112,12 @@ def main():
         random.seed(args.seed)
 
     with tempfile.TemporaryDirectory() as temp_dir_for_generated_code:
-        csmith_generated_program: Path = Path(temp_dir_for_generated_code, '__prog.c')
         dredd_covered_mutants_path: Path = Path(temp_dir_for_generated_code, '__dredd_covered_mutants')
         generated_program_exe_compiled_with_no_mutants = Path(temp_dir_for_generated_code, '__regular.exe')
         generated_program_exe_compiled_with_mutant_tracking = Path(temp_dir_for_generated_code, '__tracking.exe')
         mutant_exe = Path(temp_dir_for_generated_code, '__mutant.exe')
+        yarpgen_out_dir = Path(temp_dir_for_generated_code, '__gen')
+        yarpgen_prepared_program = Path(temp_dir_for_generated_code, '__yarpgen_prepared.c')
 
         killed_mutants: Set[int] = set()
         unkilled_mutants: Set[int] = set(range(0, mutation_tree.num_mutations))
@@ -121,33 +135,44 @@ def main():
                             time_of_last_kill=time_of_last_kill):
             if dredd_covered_mutants_path.exists():
                 os.remove(dredd_covered_mutants_path)
-            if csmith_generated_program.exists():
-                os.remove(csmith_generated_program)
             if generated_program_exe_compiled_with_no_mutants.exists():
                 os.remove(generated_program_exe_compiled_with_no_mutants)
             if generated_program_exe_compiled_with_mutant_tracking.exists():
                 os.remove(generated_program_exe_compiled_with_mutant_tracking)
+            if yarpgen_out_dir.exists():
+                shutil.rmtree(yarpgen_out_dir)
+            if yarpgen_prepared_program.exists():
+                os.remove(yarpgen_prepared_program)
 
-            # Generate a Csmith program
-            csmith_seed = random.randint(0, 2 ** 32 - 1)
-            csmith_cmd = [str(args.csmith_root / "build" / "src" / "csmith"), "--seed", str(csmith_seed), "-o",
-                          str(csmith_generated_program)]
+            os.mkdir(yarpgen_out_dir)
 
-            if run_process_with_timeout(cmd=csmith_cmd, timeout_seconds=args.generator_timeout) is None:
-                print(f"Csmith timed out (seed {csmith_seed})")
+            # Generate a Yarpgen program
+            yarpgen_seed = random.randint(0, 2 ** 32 - 1)
+            yarpgen_cmd = [str(args.yarpgen_root / "build" / "yarpgen"),
+                           "--std=c",
+                           "--seed=" + str(yarpgen_seed),
+                           "-o",
+                           str(yarpgen_out_dir)]
+
+            yarpgen_result: ProcessResult = run_process_with_timeout(cmd=yarpgen_cmd,
+                                                                     timeout_seconds=args.generator_timeout)
+            if yarpgen_result is None:
+                print(f"YARPgen timed out (seed {yarpgen_seed})")
                 continue
 
-            # Inline some immediate header files into the Csmith-generated program
-            prepare_csmith_program(original_program=csmith_generated_program,
-                                   prepared_program=csmith_generated_program,
-                                   csmith_root=args.csmith_root)
+            if yarpgen_result.returncode != 0:
+                print("YARPgen terminated abnormally.")
+                print(' '.join(yarpgen_cmd))
+                print(f"stdout: {yarpgen_result.stdout}")
+                print(f"stderr: {yarpgen_result.stderr}")
+                continue
+
+            # Plug the files generated by YARPgen together into a single C file.
+            prepare_yarpgen_program(yarpgen_out_dir=yarpgen_out_dir,
+                                    prepared_program=yarpgen_prepared_program)
 
             compiler_args = ["-O3",
-                             "-I",
-                             args.csmith_root / "runtime",
-                             "-I",
-                             args.csmith_root / "build" / "runtime",
-                             csmith_generated_program]
+                             yarpgen_prepared_program]
 
             # Compile the program without mutation.
             regular_compile_cmd = [args.mutated_compiler_executable]\
@@ -195,16 +220,16 @@ def main():
                 print("Mutant tracking compilation timed out.")
                 continue
 
-            # Try to create a directory for this Csmith test. It is very unlikely that it already exists, but this could
-            # happen if two test workers pick the same seed. If that happens, this worker will skip the test.
-            csmith_test_name: str = "csmith_" + str(csmith_seed)
-            test_output_directory: Path = Path("work/tests/" + csmith_test_name)
+            # Try to create a directory for this YARPgen test. It is very unlikely that it already exists, but this
+            # could happen if two test workers pick the same seed. If that happens, this worker will skip the test.
+            yarpgen_test_name: str = "yarpgen_" + str(yarpgen_seed)
+            test_output_directory: Path = Path("work/tests/" + yarpgen_test_name)
             try:
                 test_output_directory.mkdir()
             except FileExistsError:
-                print(f"Skipping seed {csmith_seed} as a directory for it already exists")
+                print(f"Skipping seed {yarpgen_seed} as a directory for it already exists")
                 continue
-            shutil.copy(src=csmith_generated_program, dst=test_output_directory / "prog.c")
+            shutil.copy(src=yarpgen_prepared_program, dst=test_output_directory / "prog.c")
 
             # Load file contents into a list. We go from list to set to list to eliminate duplicates.
             covered_by_this_test: List[int] = list(set([int(line.strip()) for line in
@@ -256,7 +281,7 @@ def main():
                     mutant_path.mkdir()
                     print("Writing kill info to file.")
                     with open(mutant_path / "kill_info.json", "w") as outfile:
-                        json.dump({"killing_test": csmith_test_name,
+                        json.dump({"killing_test": yarpgen_test_name,
                                    "kill_type": str(mutant_result)}, outfile)
                 except FileExistsError:
                     print(f"Mutant {mutant} was independently discovered to be killed.")
