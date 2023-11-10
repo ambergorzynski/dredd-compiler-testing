@@ -4,18 +4,73 @@ Scripts to allow the Dredd mutation testing framework to be used to generate tes
 
 ## Build mutated versions of clang
 
-* TODO: clone LLVM into llvm-project-mutated
-* TODO: clone the clone into llvm-project-mutant-tracking
-* TODO: check out a suitable tag for each repo
-* TODO: cmake with compile commands in mutated repo
-* TODO: build core components of mutated repo
-* TODO: run dredd on mutated repo
-* TODO: build entire LLVM project in mutated repo
-* TODO: cmake with compile commands in tracking repo
-* TODO: build core components of tracking repo
-* TODO: run dredd on tracking repo
-* TODO: build entire LLVM project in tracking repo
+Decide which version of the LLVM project you would like to mutate and put this version in the `LLVM_VERSION` environment variable. E.g.:
 
+```
+export LLVM_VERSION=17.0.4
+```
+
+Check out this version of the LLVM project, and keep it as a clean version of the source code (from which versions of the source code to be mutated will be copied):
+
+```
+git clone https://github.com/llvm/llvm-project.git llvm-${LLVM_VERSION}-clean
+cd llvm-${LLVM_VERSION}-clean
+git checkout llvmorg-${LLVM_VERSION}
+cd ..
+```
+
+Now make two copies of the LLVM project--one that will be mutated, and another that will be used for the tracking of covered mutants.
+
+```
+cp -r llvm-${LLVM_VERSION}-clean llvm-${LLVM_VERSION}-mutated
+cp -r llvm-${LLVM_VERSION}-clean llvm-${LLVM_VERSION}-mutant-tracking
+```
+
+Generate a compilation database for each of these copies of LLVM, and build a core component so that all auto-generated code is in place for Dredd.
+
+```
+for kind in mutated mutant-tracking
+do
+  SOURCE_DIR=llvm-${LLVM_VERSION}-${kind}/llvm
+  BUILD_DIR=llvm-${LLVM_VERSION}-${kind}-build
+  mkdir ${BUILD_DIR}
+  cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_FLAGS="-w" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang"
+  # Build something minimal to ensure all auto-generated pieces of code are created.
+  cmake --build "${BUILD_DIR}" --target LLVMCore
+done
+```
+
+Record the location of the `dredd` executable in an environment variable. Normally this will be `/path/to/dredd-repo/third_party/clang+llvm/bin/dredd`.
+
+```
+export DREDD_EXECUTABLE=/path/to/dredd
+```
+
+Mutate all `.cpp` files under `InstCombine` in the copy of LLVM designated for mutation:
+
+```
+FILES_TO_MUTATE=($(ls llvm-${LLVM_VERSION}-mutated/llvm/lib/Transforms/InstCombine/*.cpp | sort))
+echo ${FILES[*]}
+${DREDD_EXECUTABLE} -p llvm-${LLVM_VERSION}-mutated-build/compile_commands.json --mutation-info-file llvm-mutated.json ${FILES_TO_MUTATE[*]}
+```
+
+Apply mutation tracking to all `.cpp` files under `InstCombine` in the copy of LLVM designated for mutation tracking:
+
+```
+FILES_TO_MUTATE=($(ls llvm-${LLVM_VERSION}-mutant-tracking/llvm/lib/Transforms/InstCombine/*.cpp | sort))
+echo ${FILES[*]}
+${DREDD_EXECUTABLE} --only-track-mutant-coverage -p llvm-${LLVM_VERSION}-mutant-tracking-build/compile_commands.json --mutation-info-file llvm-mutant-tracking.json ${FILES_TO_MUTATE[*]}
+```
+
+Build entire LLVM project for both copies (this will take a long time):
+
+```
+for kind in mutated mutant-tracking
+do
+  BUILD_DIR=llvm-${LLVM_VERSION}-${kind}-build
+  cmake --build ${BUILD_DIR}
+done
+```
 
 
 
