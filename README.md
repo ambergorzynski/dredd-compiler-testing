@@ -2,6 +2,16 @@
 
 Scripts to allow the Dredd mutation testing framework to be used to generate test cases that improve mutation coverage.
 
+##
+
+Necessary packages on AWS EC2:
+
+```
+sudo apt install python3-pip python3.10-venv zip
+pip3 install --upgrade pip
+pip3 install build
+```
+
 ## Build mutated versions of clang
 
 Decide which version of the LLVM project you would like to mutate and put this version in the `LLVM_VERSION` environment variable. E.g.:
@@ -72,16 +82,26 @@ do
 done
 ```
 
-
-
 ## Build and interactive install steps
 
 ```
-python -m build
-python -m pip install -e .
+git clone https://github.com/mc-imperial/dredd-compiler-testing.git
+pushd dredd-compiler-testing
+python3 -m build
+python3 -m pip install -e .
+popd
 ```
 
 ## Scripts to figure out which Dredd-induced mutants are killed by the LLVM test suite
+
+```
+git clone https://github.com/llvm/llvm-test-suite.git
+cd llvm-test-suite
+git checkout llvmorg-${LLVM_VERSION}
+cd ..
+# Make sure that llvm-size is on your path. It is available from the just-built compiler, or from the compiler under dredd's third party directory. TODO: decide which one to use in instructions.
+cmake -G Ninja -S llvm-test-suite -B llvm-test-suite-build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
 
 You point it at:
 
@@ -93,16 +113,16 @@ You point it at:
 It considers the tests in the suite in turn and determines which
 mutants they kill.
 
-Command to invoke llvm-test-suite-runner on Ally's machine:
+Command to invoke `llvm-test-suite-runner`:
 
 ```
-llvm-test-suite-runner $MUTATED_ROOT/dredd.json $TRACKING_ROOT/dredd.json $MUTATED_ROOT/build/bin $TRACKING_ROOT/build/bin $LLVM_TEST_SUITE_ROOT $LLVM_TEST_SUITE_ROOT/build/compile_commands.json
+llvm-test-suite-runner llvm-mutated.json llvm-mutant-tracking.json llvm-${LLVM_VERSION}-mutated-build/bin llvm-${LLVM_VERSION}-mutant-tracking-build/bin $(pwd)/llvm-test-suite llvm-test-suite-build/compile_commands.json
 ```
 
 To run many instances in parallel (16):
 
 ```
-for i in `seq 1 16`; do llvm-test-suite-runner $MUTATED_ROOT/dredd.json $TRACKING_ROOT/dredd.json $MUTATED_ROOT/build/bin $TRACKING_ROOT/build/bin $LLVM_TEST_SUITE_ROOT $LLVM_TEST_SUITE_ROOT/build/compile_commands.json & done
+for i in `seq 1 16`; do llvm-test-suite-runner llvm-mutated.json llvm-mutant-tracking.json llvm-${LLVM_VERSION}-mutated-build/bin llvm-${LLVM_VERSION}-mutant-tracking-build/bin $(pwd)/llvm-test-suite llvm-test-suite-build/compile_commands.json & done
 ```
 
 To kill them:
@@ -116,27 +136,27 @@ Watch out for left over `clang` processes!
 
 
 
-
-
-```
-FILES=""
-for f in `find llvm/lib/Transforms/InstCombine -name "*.cpp"`; do FILES="$FILES $f"; done
-```
+# LLVM regression test runner
 
 ```
-/data/afd/dredd/third_party/clang+llvm/bin/dredd -p build/compile_commands.json --mutation-info-file dredd.json $FILES
+for kind in mutated mutant-tracking
+do
+  pushd llvm-${LLVM_VERSION}-${kind}
+    git apply ../dredd-compiler-testing/lit-patches/${kind}.patch
+  popd
+done
 ```
 
+Command to invoke regression test suite runner:
+
 ```
-/data/afd/dredd/third_party/clang+llvm/bin/dredd -p build/compile_commands.json --mutation-info-file dredd.json --only-track-mutant-coverage $FILES
+llvm-regression-tests-runner llvm-mutated.json llvm-mutant-tracking.json llvm-${LLVM_VERSION}-mutated-build/bin llvm-${LLVM_VERSION}-mutant-tracking-build/bin llvm-${LLVM_VERSION}-mutated/llvm/test/Transforms/InstCombine llvm-${LLVM_VERSION}-mutant-tracking/llvm/test/Transforms/InstCombine
 ```
 
+To run many instances in parallel (16):
 
+```
+for i in `seq 1 16`; do llvm-regression-tests-runner llvm-mutated.json llvm-mutant-tracking.json llvm-${LLVM_VERSION}-mutated-build/bin llvm-${LLVM_VERSION}-mutant-tracking-build/bin llvm-${LLVM_VERSION}-mutated/llvm/test/Transforms/InstCombine llvm-${LLVM_VERSION}-mutant-tracking/llvm/test/Transforms/InstCombine & done
+```
 
-
-
-
-
-
-
-for i in `seq 1 4`; do llvm-regression-tests-runner $MUTATED_ROOT/dredd.json $TRACKING_ROOT/dredd.json $MUTATED_ROOT/build/bin $TRACKING_ROOT/build/bin $MUTATED_ROOT/llvm/test/Transforms/InstCombine $TRACKING_ROOT/llvm/test/Transforms/InstCombine & done
+To kill them: TODO
