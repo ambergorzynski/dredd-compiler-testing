@@ -7,12 +7,19 @@ Scripts to allow the Dredd mutation testing framework to be used to generate tes
 Necessary packages on AWS EC2:
 
 ```
-sudo apt install python3-pip python3.10-venv zip
+sudo apt update
+sudo apt install -y python3-pip python3.10-venv unzip zip cmake clang-15 ninja-build libzstd-dev
 pip3 install --upgrade pip
 pip3 install build
 ```
 
-## Build mutated versions of clang
+## Set some environment variables
+
+Decide where the root of the experiments should be. Everything that follows will be checked out / performed under this location. E.g.:
+
+```
+export DREDD_EXPERIMENTS_ROOT=${HOME}
+```
 
 Decide which version of the LLVM project you would like to mutate and put this version in the `LLVM_VERSION` environment variable. E.g.:
 
@@ -20,13 +27,31 @@ Decide which version of the LLVM project you would like to mutate and put this v
 export LLVM_VERSION=17.0.4
 ```
 
+
+## Get Dredd and build it
+
+```
+cd ${DREDD_EXPERIMENTS_ROOT}
+git clone --recursive https://github.com/mc-imperial/dredd.git
+pushd dredd
+    OS=ubuntu-22.04 DREDD_LLVM_SUFFIX=-stock-clang .github/workflows/install_clang.sh
+popd
+cmake -S dredd -B dredd/build -G Ninja -DCMAKE_C_COMPILER=clang-15 -DCMAKE_CXX_COMPILER=clang++-15
+cmake --build dredd/build --target dredd
+cp dredd/build/src/dredd/dredd dredd/third_party/clang+llvm/bin/
+```
+
+
+## Build mutated versions of clang
+
 Check out this version of the LLVM project, and keep it as a clean version of the source code (from which versions of the source code to be mutated will be copied):
 
 ```
+cd ${DREDD_EXPERIMENTS_ROOT}
 git clone https://github.com/llvm/llvm-project.git llvm-${LLVM_VERSION}-clean
-cd llvm-${LLVM_VERSION}-clean
+pushd llvm-${LLVM_VERSION}-clean
 git checkout llvmorg-${LLVM_VERSION}
-cd ..
+popd
 ```
 
 Now make two copies of the LLVM project--one that will be mutated, and another that will be used for the tracking of covered mutants.
@@ -39,26 +64,28 @@ cp -r llvm-${LLVM_VERSION}-clean llvm-${LLVM_VERSION}-mutant-tracking
 Generate a compilation database for each of these copies of LLVM, and build a core component so that all auto-generated code is in place for Dredd.
 
 ```
+cd ${DREDD_EXPERIMENTS_ROOT}
 for kind in mutated mutant-tracking
 do
   SOURCE_DIR=llvm-${LLVM_VERSION}-${kind}/llvm
   BUILD_DIR=llvm-${LLVM_VERSION}-${kind}-build
   mkdir ${BUILD_DIR}
-  cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_FLAGS="-w" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang"
+  cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_FLAGS="-w" -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" -DCMAKE_C_COMPILER=clang-15 -DCMAKE_CXX_COMPILER=clang++-15
   # Build something minimal to ensure all auto-generated pieces of code are created.
   cmake --build "${BUILD_DIR}" --target LLVMCore
 done
 ```
 
-Record the location of the `dredd` executable in an environment variable. Normally this will be `/path/to/dredd-repo/third_party/clang+llvm/bin/dredd`.
+Record the location of the `dredd` executable in an environment variable.
 
 ```
-export DREDD_EXECUTABLE=/path/to/dredd
+export DREDD_EXECUTABLE=${DREDD_EXPERIMENTS_ROOT}/dredd/third_party/clang+llvm/bin/dredd
 ```
 
 Mutate all `.cpp` files under `InstCombine` in the copy of LLVM designated for mutation:
 
 ```
+cd ${DREDD_EXPERIMENTS_ROOT}
 FILES_TO_MUTATE=($(ls llvm-${LLVM_VERSION}-mutated/llvm/lib/Transforms/InstCombine/*.cpp | sort))
 echo ${FILES[*]}
 ${DREDD_EXECUTABLE} -p llvm-${LLVM_VERSION}-mutated-build/compile_commands.json --mutation-info-file llvm-mutated.json ${FILES_TO_MUTATE[*]}
@@ -67,6 +94,7 @@ ${DREDD_EXECUTABLE} -p llvm-${LLVM_VERSION}-mutated-build/compile_commands.json 
 Apply mutation tracking to all `.cpp` files under `InstCombine` in the copy of LLVM designated for mutation tracking:
 
 ```
+cd ${DREDD_EXPERIMENTS_ROOT}
 FILES_TO_MUTATE=($(ls llvm-${LLVM_VERSION}-mutant-tracking/llvm/lib/Transforms/InstCombine/*.cpp | sort))
 echo ${FILES[*]}
 ${DREDD_EXECUTABLE} --only-track-mutant-coverage -p llvm-${LLVM_VERSION}-mutant-tracking-build/compile_commands.json --mutation-info-file llvm-mutant-tracking.json ${FILES_TO_MUTATE[*]}
@@ -75,6 +103,7 @@ ${DREDD_EXECUTABLE} --only-track-mutant-coverage -p llvm-${LLVM_VERSION}-mutant-
 Build entire LLVM project for both copies (this will take a long time):
 
 ```
+cd ${DREDD_EXPERIMENTS_ROOT}
 for kind in mutated mutant-tracking
 do
   BUILD_DIR=llvm-${LLVM_VERSION}-${kind}-build
@@ -85,6 +114,7 @@ done
 ## Build and interactive install steps
 
 ```
+cd ${DREDD_EXPERIMENTS_ROOT}
 git clone https://github.com/mc-imperial/dredd-compiler-testing.git
 pushd dredd-compiler-testing
 python3 -m build
