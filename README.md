@@ -8,7 +8,7 @@ Necessary packages on AWS EC2:
 
 ```
 sudo apt update
-sudo apt install -y python3-pip python3.10-venv unzip zip cmake clang-15 ninja-build libzstd-dev
+sudo apt install -y python3-pip python3.10-venv unzip zip cmake clang-15 ninja-build libzstd-dev m4
 pip3 install --upgrade pip
 pip3 install build
 ```
@@ -187,6 +187,30 @@ To run many instances in parallel (16):
 
 ```
 for i in `seq 1 16`; do llvm-regression-tests-runner llvm-mutated.json llvm-mutant-tracking.json llvm-${LLVM_VERSION}-mutated-build/bin llvm-${LLVM_VERSION}-mutant-tracking-build/bin llvm-${LLVM_VERSION}-mutated/llvm/test/Transforms/InstCombine llvm-${LLVM_VERSION}-mutant-tracking/llvm/test/Transforms/InstCombine & done
+```
+
+To kill them: TODO
+
+
+# Csmith runner
+
+Get and build Csmith:
+
+```
+cd ${DREDD_EXPERIMENTS_ROOT}
+git clone https://github.com/csmith-project/csmith.git
+cmake -S csmith -B csmith/build -G Ninja
+cmake --build csmith/build
+```
+
+```
+csmith-runner llvm-mutated.json llvm-mutant-tracking.json llvm-${LLVM_VERSION}-mutated-build/bin/clang llvm-${LLVM_VERSION}-mutant-tracking-build/bin/clang ${DREDD_EXPERIMENTS_ROOT}/csmith
+```
+
+To run many instances in parallel (16):
+
+```
+for i in `seq 1 16`; do csmith-runner llvm-mutated.json llvm-mutant-tracking.json llvm-${LLVM_VERSION}-mutated-build/bin/clang llvm-${LLVM_VERSION}-mutant-tracking-build/bin/clang ${DREDD_EXPERIMENTS_ROOT}/csmith & done
 ```
 
 To kill them: TODO
