@@ -214,3 +214,13 @@ for i in `seq 1 16`; do csmith-runner llvm-mutated.json llvm-mutant-tracking.jso
 ```
 
 To kill them: TODO
+
+
+# Results analysis
+
+To see a list of the Csmith tests that have led to "actionable" kills (kills for which test case reduction will lead to a runnable killing test case with oracle), do:
+
+```
+cd ${DREDD_EXPERIMENTS_ROOT}
+analyse-results work
+```
