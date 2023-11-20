@@ -224,3 +224,10 @@ To see a list of the Csmith tests that have led to "actionable" kills (kills for
 cd ${DREDD_EXPERIMENTS_ROOT}
 analyse-results work
 ```
+
+# Reductions
+
+```
+cd ${DREDD_EXPERIMENTS_ROOT}
+reduce-new-kills llvm-${LLVM_VERSION}-mutated-build/bin csmith
+```

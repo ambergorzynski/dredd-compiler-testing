@@ -8,37 +8,41 @@ import sys
 import time
 
 # Check that the program compiles with a recent clang
-result: subprocess.CompletedProcess = subprocess.run(["clang-15", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-pedantic", "-Wall", "-O0", "-c", "{{ program_to_check }}"], capture_output=True)
+result: subprocess.CompletedProcess = subprocess.run(
+    ["clang-15", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-pedantic", "-Wall",
+     "-O0", "-c", "{{ program_to_check }}"], capture_output=True)
 if result.returncode != 0:
-   sys.exit(1)
+    sys.exit(1)
 
 # Check the program is free from various telltale clang compiler warnings
 output: str = result.stdout.decode('utf-8') + result.stderr.decode('utf-8')
-for warning in [ "incompatible redeclaration",
-   "ordered comparison between pointer",
-   "eliding middle term",
-   "end of non-void function",
-   "invalid in C99",
-   "specifies type",
-   "should return a value",
-   "too few argument",
-   "too many argument",
-   "return type of 'main"
-   "uninitialized",
-   "incompatible pointer to",
-   "incompatible integer to",
-   "type specifier missing",
-   "omitting the parameter name in a function definition is a C2x extension",
-   "was not declared, defaulting to type",
-   "is uninitialized when used here",
-   "format string is not a string literal"]:
-   if warning in output:
-      sys.exit(2)
+for warning in ["incompatible redeclaration",
+                "ordered comparison between pointer",
+                "eliding middle term",
+                "end of non-void function",
+                "invalid in C99",
+                "specifies type",
+                "should return a value",
+                "too few argument",
+                "too many argument",
+                "return type of 'main"
+                "uninitialized",
+                "incompatible pointer to",
+                "incompatible integer to",
+                "type specifier missing",
+                "omitting the parameter name in a function definition is a C2x extension",
+                "was not declared, defaulting to type",
+                "is uninitialized when used here",
+                "format string is not a string literal"]:
+    if warning in output:
+        sys.exit(2)
 
 # Check the program compiles with a recent gcc
-result = subprocess.run(["gcc-12", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-c", "-Wall", "-Wextra", "{{ program_to_check }}"], capture_output=True)
+result = subprocess.run(
+    ["gcc-12", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-c", "-Wall", "-Wextra",
+     "{{ program_to_check }}"], capture_output=True)
 if result.returncode != 0:
-   sys.exit(3)
+    sys.exit(3)
 
 # Check the program is free from various telltale gcc compiler warnings
 output: str = result.stdout.decode('utf-8') + result.stderr.decode('utf-8')
@@ -59,92 +63,104 @@ for warning in ["uninitialized",
                 "format .* expects a matching .* argument",
                 "format not a string literal",
                 "no return statement in function returning non-void"]:
-  if re.search(warning, output):
-    sys.exit(4)
+    if re.search(warning, output):
+        sys.exit(4)
 
 # Compile with the unmutated compiler, timing how long this takes
 compile_start = time.time()
-result = subprocess.run(["{{ mutated_compiler_executable }}", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-O3", "{{ program_to_check }}", "-o", "__regular"], capture_output=True)
+result = subprocess.run(
+    ["{{ mutated_compiler_executable }}", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime",
+     "-O3", "{{ program_to_check }}", "-o", "__regular"], capture_output=True)
 compile_end = time.time()
 
 # Compilation with the non-mutated compiler should succeed
 if result.returncode != 0:
-   sys.exit(5)
+    sys.exit(5)
 
 # Compile with the mutated compiler, allowing compilation to take substantially longer
 try:
-   dredd_environment = os.environ.copy()
-   dredd_environment["DREDD_ENABLED_MUTATION"] = "{{ mutation_ids }}"
-   result = subprocess.run(["{{ mutated_compiler_executable }}", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-O3", "{{ program_to_check }}", "-o", "__mutated"],
-                           capture_output=True,
-                           timeout=max({{ min_timeout_for_mutant_compilation }}, {{ timeout_multiplier_for_mutant_compilation }} * (compile_end - compile_start)),
-                           env=dredd_environment)
-   if result.returncode != 0:
-      # Compilation with the mutated file failed, which is not
-      # interesting as we are looking for a mutation-induced
-      # miscompilation
-      sys.exit(6)
+    dredd_environment = os.environ.copy()
+    dredd_environment["DREDD_ENABLED_MUTATION"] = "{{ mutation_ids }}"
+    result = subprocess.run(["{{ mutated_compiler_executable }}", "-I", "{{ csmith_root }}/runtime", "-I",
+                             "{{ csmith_root }}/build/runtime", "-O3", "{{ program_to_check }}", "-o", "__mutated"],
+                            capture_output=True,
+                            timeout=max({{min_timeout_for_mutant_compilation}},
+                                        {{timeout_multiplier_for_mutant_compilation}} * (compile_end - compile_start)),
+                            env=dredd_environment)
+    if result.returncode != 0:
+        # Compilation with the mutated file failed, which is not
+        # interesting as we are looking for a mutation-induced
+        # miscompilation
+        sys.exit(6)
 except subprocess.TimeoutExpired:
-   # Compilation with the mutated compiler timed out, which is not
-   # interesting as we are looking for a mutation-induced
-   # miscompilation
-   sys.exit(7)
+    # Compilation with the mutated compiler timed out, which is not
+    # interesting as we are looking for a mutation-induced
+    # miscompilation
+    sys.exit(7)
 
 if filecmp.cmp("__regular", "__mutated"):
-   # There is no difference between the binaries generated by the
-   # original and mutated compilers - not interesting.
-   sys.exit(8)
+    # There is no difference between the binaries generated by the
+    # original and mutated compilers - not interesting.
+    sys.exit(8)
 
 # Run the program compiled with the regular compiler, and time it.
 try:
-   execute_start = time.time()
-   result_regular = subprocess.run(["./__regular"], capture_output=True, timeout={{ default_runtime_timeout }})
-   execute_end = time.time()
-   if result_regular.returncode != 0:
-     # Execution failed - not interesting
-     sys.exit(9)
-   if result_regular.stdout.decode('utf-8') == "":
-      # The non-mutated compiled program yields no output - not interesting
-      sys.exit(10)
+    execute_start = time.time()
+    result_regular = subprocess.run(["./__regular"], capture_output=True, timeout={{default_runtime_timeout}})
+    execute_end = time.time()
+    if result_regular.returncode != 0:
+        # Execution failed - not interesting
+        sys.exit(9)
+    if result_regular.stdout.decode('utf-8') == "":
+        # The non-mutated compiled program yields no output - not interesting
+        sys.exit(10)
 except subprocess.TimeoutExpired:
-   # Execution timed out - not interesting
-   sys.exit(11)
+    # Execution timed out - not interesting
+    sys.exit(11)
 
 # Now try running the program compiled with the mutated compiler,
 # giving it substantially more time to run.
 try:
-   result_mutated = subprocess.run(["./__mutated"], capture_output=True, timeout=max({{ min_timeout_for_mutant_execution }}, {{ timeout_multiplier_for_mutant_execution }} * (execute_end - execute_start)))
-   if result_mutated.returncode == 0 and result_mutated.stdout.decode('utf-8') == result_regular.stdout.decode('utf-8'):
-      # The mutated program terminated normally and yielded a result matching the regular
-      # program. Not interesting.
-      sys.exit(13)
+    result_mutated = subprocess.run(["./__mutated"], capture_output=True,
+                                    timeout=max({{min_timeout_for_mutant_execution}},
+                                                {{timeout_multiplier_for_mutant_execution}} * (
+                                                            execute_end - execute_start)))
+    if result_mutated.returncode == 0 and result_mutated.stdout.decode('utf-8') == result_regular.stdout.decode(
+            'utf-8'):
+        # The mutated program terminated normally and yielded a result matching the regular
+        # program. Not interesting.
+        sys.exit(13)
 except subprocess.TimeoutExpired:
-   # The mutated program timed out while the original did not. Interesting!
-   pass
+    # The mutated program timed out while the original did not. Interesting!
+    pass
 
 # At this point, the program compiled by the mutated compiler has yielded a result mismatch
 # either in its return code, printed output, or by timming out. This looks interesting.
 
 # Finally, check that the program is UB-free. First, use asan and ubsan.
-result = subprocess.run(["clang-15", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined", "{{ program_to_check }}", "-o", "__sanitized"], capture_output=True)
+result = subprocess.run(["clang-15", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime",
+                         "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined", "{{ program_to_check }}",
+                         "-o", "__sanitized"], capture_output=True)
 if result.returncode != 0:
-   # Compilation failed - this really shouldn't happen, but if it does then
-   # something is wrong
-   sys.exit(15)
+    # Compilation failed - this really shouldn't happen, but if it does then
+    # something is wrong
+    sys.exit(15)
 result = subprocess.run(["./__sanitized"], capture_output=True)
 if result.returncode != 0:
-   # Either asan or ubsan detected a problem - not interesting
-   sys.exit(16)
+    # Either asan or ubsan detected a problem - not interesting
+    sys.exit(16)
 
 # Now use msan
-result = subprocess.run(["clang-15", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-fsanitize=memory", "{{ program_to_check }}", "-o", "__sanitized"], capture_output=True)
+result = subprocess.run(
+    ["clang-15", "-I", "{{ csmith_root }}/runtime", "-I", "{{ csmith_root }}/build/runtime", "-fsanitize=memory",
+     "{{ program_to_check }}", "-o", "__sanitized"], capture_output=True)
 if result.returncode != 0:
-   # Compilation failed - this really shouldn't happen, but if it does then
-   # something is wrong
-   sys.exit(17)
+    # Compilation failed - this really shouldn't happen, but if it does then
+    # something is wrong
+    sys.exit(17)
 result = subprocess.run(["./__sanitized"], capture_output=True)
 if result.returncode != 0:
-   # msan detected a problem - not interesting
-   sys.exit(18)
+    # msan detected a problem - not interesting
+    sys.exit(18)
 
 sys.exit(0)

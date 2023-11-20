@@ -11,9 +11,10 @@ from dredd_test_runners.common.constants import (DEFAULT_RUNTIME_TIMEOUT,
                                                  TIMEOUT_MULTIPLIER_FOR_MUTANT_COMPILATION,
                                                  MIN_TIMEOUT_FOR_MUTANT_EXECUTION,
                                                  TIMEOUT_MULTIPLIER_FOR_MUTANT_EXECUTION)
+from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 def main():
@@ -103,7 +104,14 @@ def main():
         shutil.copy(src=tests_dir / killed_mutant_to_test_info[mutant_to_reduce]['killing_test'] / 'prog.c',
                     dst=current_reduction_dir / 'prog.c')
 
-        # TODO: Run the reduction
+        # 12 hour timeout
+        maybe_result: Optional[ProcessResult] = run_process_with_timeout(
+            cmd=['creduce', 'interesting.py', 'prog.c'],
+            timeout_seconds=43200,
+            cwd=current_reduction_dir)
+        if maybe_result is None:
+            print(f"Reduction of {mutant_to_reduce} timed out.")
+
         # TODO: Check for additional kills for the reduced program
         # TODO: Emit a summary of the mutants that the reduced program kills
         # TODO: Look into potential for automated cleanup of reduced program, e.g. to use standard data types or to

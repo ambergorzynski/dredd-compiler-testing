@@ -105,6 +105,8 @@ def main():
         generated_program_exe_compiled_with_no_mutants = Path(temp_dir_for_generated_code, '__regular.exe')
         generated_program_exe_compiled_with_mutant_tracking = Path(temp_dir_for_generated_code, '__tracking.exe')
         mutant_exe = Path(temp_dir_for_generated_code, '__mutant.exe')
+        asan_ubsan_compiled_exe = Path(temp_dir_for_generated_code, '__asan_ubsan.exe')
+        msan_compiled_exe = Path(temp_dir_for_generated_code, '__msan.exe')
 
         killed_mutants: Set[int] = set()
         unkilled_mutants: Set[int] = set(range(0, mutation_tree.num_mutations))
@@ -128,6 +130,10 @@ def main():
                 os.remove(generated_program_exe_compiled_with_no_mutants)
             if generated_program_exe_compiled_with_mutant_tracking.exists():
                 os.remove(generated_program_exe_compiled_with_mutant_tracking)
+            if asan_ubsan_compiled_exe.exists():
+                os.remove(asan_ubsan_compiled_exe)
+            if msan_compiled_exe.exists():
+                os.remove(msan_compiled_exe)
 
             # Generate a Csmith program
             csmith_seed = random.randint(0, 2 ** 32 - 1)
@@ -184,6 +190,52 @@ def main():
             if regular_execution_result.returncode != 0:
                 print("Execution of generated program failed without mutants.")
                 continue
+
+            # Compile and run the program with sanitizers - it should run without error. This is to guard against Csmith
+            # sometimes emitting programs that feature undefined behaviour.
+            asan_ubsan_compile_command = ["clang-15"] + compiler_args + ["-fsanitize=address,undefined",
+                                                                         "-fno-sanitize-recover=undefined",
+                                                                         "-o",
+                                                                         asan_ubsan_compiled_exe]
+            asan_ubsan_compilation_result: ProcessResult = run_process_with_timeout(
+                asan_ubsan_compile_command,
+                timeout_seconds=args.compile_timeout * 10)
+            if asan_ubsan_compilation_result is None:
+                print("Compilation of generated program with asan/ubsan timed out.")
+                continue
+            if asan_ubsan_compilation_result.returncode != 0:
+                print("Compilation of generated program with asan/ubsan failed.")
+                continue
+            asan_ubsan_execution_result: ProcessResult = run_process_with_timeout(
+                cmd=[str(asan_ubsan_compiled_exe)], timeout_seconds=args.run_timeout * 10)
+            if asan_ubsan_execution_result is None:
+                print("Execution of generated program with asan/ubsan timed out.")
+                continue
+            if asan_ubsan_execution_result.returncode != 0:
+                print("Asan/ubsan error detected in generated program.")
+                continue
+
+            msan_compile_command = ["clang-15"] + compiler_args + ["-fsanitize=memory",
+                                                                   "-o",
+                                                                   msan_compiled_exe]
+            msan_compilation_result: ProcessResult = run_process_with_timeout(
+                msan_compile_command,
+                timeout_seconds=args.compile_timeout * 10)
+            if msan_compilation_result is None:
+                print("Compilation of generated program with msan timed out.")
+                continue
+            if msan_compilation_result.returncode != 0:
+                print("Compilation of generated program with msan failed.")
+                continue
+            msan_execution_result: ProcessResult = run_process_with_timeout(
+                cmd=[str(msan_compiled_exe)], timeout_seconds=args.run_timeout * 10)
+            if msan_execution_result is None:
+                print("Execution of generated program with msan timed out.")
+                continue
+            if msan_execution_result.returncode != 0:
+                print("Msan error detected in generated program.")
+                continue
+            # End of use of sanitizers on the generated program - it's looking good!
 
             # Compile the program with the mutant tracking compiler.
             tracking_environment = os.environ.copy()
