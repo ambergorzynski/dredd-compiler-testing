@@ -7,11 +7,12 @@ import random
 import tempfile
 import time
 
-from dredd_test_runners.csmith_runner.prepare_csmith_program import prepare_csmith_program
+from dredd_test_runners.common.constants import DEFAULT_COMPILATION_TIMEOUT, DEFAULT_RUNTIME_TIMEOUT
+from dredd_test_runners.common.hash_file import hash_file
+from dredd_test_runners.common.mutation_tree import MutationTree
 from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
 from dredd_test_runners.common.run_test_with_mutants import run_test_with_mutants, KillStatus
-from dredd_test_runners.common.mutation_tree import MutationTree
-from dredd_test_runners.common.hash_file import hash_file
+from dredd_test_runners.csmith_runner.prepare_csmith_program import prepare_csmith_program
 
 from pathlib import Path
 from typing import List, Set
@@ -56,11 +57,11 @@ def main():
                         help="Time in seconds to allow for generation of a program.",
                         type=int)
     parser.add_argument("--compile_timeout",
-                        default=5,
+                        default=DEFAULT_COMPILATION_TIMEOUT,
                         help="Time in seconds to allow for compilation of a generated program (without mutation).",
                         type=int)
     parser.add_argument("--run_timeout",
-                        default=10,
+                        default=DEFAULT_RUNTIME_TIMEOUT,
                         help="Time in seconds to allow for running a generated program (without mutation).",
                         type=int)
     parser.add_argument("--seed",

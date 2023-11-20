@@ -6,6 +6,12 @@ import shutil
 import stat
 import sys
 
+from dredd_test_runners.common.constants import (DEFAULT_RUNTIME_TIMEOUT,
+                                                 MIN_TIMEOUT_FOR_MUTANT_COMPILATION,
+                                                 TIMEOUT_MULTIPLIER_FOR_MUTANT_COMPILATION,
+                                                 MIN_TIMEOUT_FOR_MUTANT_EXECUTION,
+                                                 TIMEOUT_MULTIPLIER_FOR_MUTANT_EXECUTION)
+
 from pathlib import Path
 from typing import Dict, List
 
@@ -83,7 +89,13 @@ def main():
             program_to_check="prog.c",
             mutated_compiler_executable=args.mutated_compiler_executable,
             csmith_root=args.csmith_root,
-            mutation_ids=str(mutant_to_reduce)))
+            mutation_ids=str(mutant_to_reduce),
+            min_timeout_for_mutant_compilation=MIN_TIMEOUT_FOR_MUTANT_COMPILATION,
+            timeout_multiplier_for_mutant_compilation=TIMEOUT_MULTIPLIER_FOR_MUTANT_COMPILATION,
+            min_timeout_for_mutant_execution=MIN_TIMEOUT_FOR_MUTANT_EXECUTION,
+            timeout_multiplier_for_mutant_execution=TIMEOUT_MULTIPLIER_FOR_MUTANT_EXECUTION,
+            default_runtime_timeout=DEFAULT_RUNTIME_TIMEOUT
+        ))
 
         # Make the interestingness test executable.
         st = os.stat(current_reduction_dir / 'interesting.py')

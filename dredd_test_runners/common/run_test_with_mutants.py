@@ -3,8 +3,12 @@ import os
 from pathlib import Path
 from typing import List
 
-from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
+from dredd_test_runners.common.constants import (MIN_TIMEOUT_FOR_MUTANT_COMPILATION,
+                                                 MIN_TIMEOUT_FOR_MUTANT_EXECUTION,
+                                                 TIMEOUT_MULTIPLIER_FOR_MUTANT_COMPILATION,
+                                                 TIMEOUT_MULTIPLIER_FOR_MUTANT_EXECUTION)
 from dredd_test_runners.common.hash_file import hash_file
+from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
 
 
 class KillStatus(Enum):
@@ -31,9 +35,12 @@ def run_test_with_mutants(mutants: List[int],
     if mutant_exe_path.exists():
         os.remove(mutant_exe_path)
     mutated_cmd = [compiler_path] + compiler_args + ['-o', str(mutant_exe_path)]
-    mutated_result: ProcessResult = run_process_with_timeout(cmd=mutated_cmd,
-                                                             timeout_seconds=int(max(1.0, 5.0 * compile_time)),
-                                                             env=mutated_environment)
+    mutated_result: ProcessResult = run_process_with_timeout(
+        cmd=mutated_cmd,
+        timeout_seconds=int(max(
+            MIN_TIMEOUT_FOR_MUTANT_COMPILATION,
+            TIMEOUT_MULTIPLIER_FOR_MUTANT_COMPILATION * compile_time)),
+        env=mutated_environment)
     if mutated_result is None:
         return KillStatus.KILL_COMPILER_TIMEOUT
 
@@ -43,8 +50,10 @@ def run_test_with_mutants(mutants: List[int],
     if binary_hash_non_mutated == hash_file(str(mutant_exe_path)):
         return KillStatus.SURVIVED_IDENTICAL
 
-    mutated_execution_result: ProcessResult = run_process_with_timeout(cmd=[str(mutant_exe_path)],
-                                                                       timeout_seconds=int(max(1.0, 5.0 * run_time)))
+    mutated_execution_result: ProcessResult = run_process_with_timeout(
+        cmd=[str(mutant_exe_path)],
+        timeout_seconds=int(max(MIN_TIMEOUT_FOR_MUTANT_EXECUTION,
+                                TIMEOUT_MULTIPLIER_FOR_MUTANT_EXECUTION * run_time)))
     if mutated_execution_result is None:
         return KillStatus.KILL_RUNTIME_TIMEOUT
 
