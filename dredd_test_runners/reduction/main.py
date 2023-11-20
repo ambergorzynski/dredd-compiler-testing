@@ -83,6 +83,8 @@ def main():
             continue
         os.makedirs(current_reduction_dir)
 
+        print(f"Preparing to reduce mutant {mutant_to_reduce}. Details: {killed_mutant_to_test_info[mutant_to_reduce]}")
+
         interestingness_test_template = jinja2.Environment(
             loader=jinja2.FileSystemLoader(
                 searchpath=os.path.dirname(os.path.realpath(__file__)))).get_template("interesting.py.template")
