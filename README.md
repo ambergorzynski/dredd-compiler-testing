@@ -213,7 +213,11 @@ To run many instances in parallel (16):
 for i in `seq 1 16`; do csmith-runner llvm-mutated.json llvm-mutant-tracking.json llvm-${LLVM_VERSION}-mutated-build/bin/clang llvm-${LLVM_VERSION}-mutant-tracking-build/bin/clang ${DREDD_EXPERIMENTS_ROOT}/csmith & done
 ```
 
-To kill them: TODO
+To kill them:
+
+```
+pkill -9 -f csmith-runner
+```
 
 
 # Results analysis
@@ -229,5 +233,5 @@ analyse-results work
 
 ```
 cd ${DREDD_EXPERIMENTS_ROOT}
-reduce-new-kills llvm-${LLVM_VERSION}-mutated-build/bin csmith
+reduce-new-kills work ${DREDD_EXPERIMENTS_ROOT}/llvm-${LLVM_VERSION}-mutated-build/bin/clang ${DREDD_EXPERIMENTS_ROOT}/csmith
 ```
