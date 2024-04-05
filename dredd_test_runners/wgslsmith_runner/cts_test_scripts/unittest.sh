@@ -1,0 +1,8 @@
+#!/bin/sh
+
+DREDD_ENABLED_MUTATION=156 /data/dev/dawn_mutated/tools/run run-cts \
+    --verbose \
+    --bin=/data/dev/dawn_mutated/out/Debug \
+    --cts=/data/dev/webgpu_cts \
+    'unittests:*'
+
