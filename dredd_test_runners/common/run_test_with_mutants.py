@@ -121,18 +121,15 @@ def run_webgpu_cts_test_with_mutants(mutants: List[int],
     mutated_environment = os.environ.copy()
     mutated_environment["DREDD_ENABLED_MUTATION"] = ','.join([str(m) for m in mutants])
     
-    if mutant_exe_path.exists():
-        os.remove(mutant_exe_path)
-    
     mutated_result: ProcessResult = run_process_with_timeout(
             cmd = mutated_cmd,
             env=mutated_environment,
-            timeout=timeout_seconds)
-    
-    if mutated_result.returncode != 0:
+            timeout_seconds=timeout_seconds)
+
+    # Mutated stdout contains 'FAIL:' if at least one test failed
+    # otherwise it does not contain this string
+    if 'FAIL:' in mutated_result.stdout.decode('utf-8'):
         return CTSKillStatus.KILLED
 
-    #TODO: Make more informative kill results based on CTS results
-   
     return CTSKillStatus.SURVIVED
 
