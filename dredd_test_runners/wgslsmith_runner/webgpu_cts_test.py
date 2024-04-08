@@ -44,13 +44,8 @@ def main():
                              "instrument the source code to track mutant coverage; this will be compared against the "
                              "regular mutation info file to ensure that tracked mutants match applied mutants.",
                         type=Path)
-    parser.add_argument("mutated_compiler_executable",
-                        help="Path to the executable for the Dredd-mutated compiler.",
-                        type=Path)
-    parser.add_argument("mutant_tracking_compiler_executable",
-                        help="Path to the executable for the compiler instrumented to track mutants.",
-                        type=Path)
-    parser.add_argument("wgslsmith_root", help="Path to a checkout of WGSLsmith", #TODO: check build exe location
+    parser.add_argument("mutant_kill_path",
+                        help="Directory in which to record mutant kill info and mutant killing tests.",
                         type=Path)
     parser.add_argument("--generator_timeout",
                         default=20,
@@ -101,14 +96,8 @@ def main():
         random.seed(args.seed)
 
     #with tempfile.TemporaryDirectory() as temp_dir_for_generated_code:
-    with Path('/data/work/tint_mutation_testing/temp') as temp_dir_for_generated_code:
-        wgslsmith_generated_program: Path = Path(temp_dir_for_generated_code, '__prog.wgsl')
-        wgslsmith_reconditioned_program: Path = Path(temp_dir_for_generated_code, '__reconditioned.wgsl')
+    with Path('/data/dev/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/temp') as temp_dir_for_generated_code:
         dredd_covered_mutants_path: Path = Path(temp_dir_for_generated_code, '__dredd_covered_mutants')
-        generated_program_exe_compiled_with_no_mutants = Path(temp_dir_for_generated_code, '__regular.exe')
-        generated_program_exe_compiled_with_mutant_tracking = Path(temp_dir_for_generated_code, '__tracking.exe')
-        mutant_exe = Path(temp_dir_for_generated_code, '__mutant.exe')
-        wgslsmith_input : Path = Path(temp_dir_for_generated_code, '__inputs.json')
 
         killed_mutants: Set[int] = set()
         unkilled_mutants: Set[int] = set(range(0, mutation_tree.num_mutations))
@@ -116,10 +105,9 @@ def main():
         # Make a work directory in which information about the mutant killing process will be stored. If this already
         # exists that's OK - there may be other processes working on mutant killing, or we may be continuing a job that
         # crashed previously.
-        Path("work").mkdir(exist_ok=True)
-        Path("work/tests").mkdir(exist_ok=True)
-        Path("work/killed_mutants").mkdir(exist_ok=True)
-
+        Path(args.mutant_kill_path).mkdir(exist_ok=True)
+        Path(args.mutant_kill_path,"killed_mutants").mkdir(exist_ok=True)
+        Path(args.mutant_kill_path,"tracking").mkdir(exist_ok=True)
 
         # Get WebGPU CTS test queries as list
         #TODO: test_queries = get_test_queries()
@@ -128,19 +116,20 @@ def main():
         base_query_string = 'webgpu'
 
         test_queries = get_tests(webgpu_cts_path, base_query_string)
-        #test_queries = ['webgpu:examples:gpu,buffers:*']
+        #test_queries = ['webgpu:shader,execution,flow_control,loop:*']
+        #test_queries = ['webgpu:api,operation,buffers,map_oom:*']
+
+        # Shader queries only for now
+        test_queries = [t for t in test_queries if 'webgpu:shader' in t]
         
         # Loop over tests
-        for query in test_queries:
+        for (test_id, query) in enumerate(test_queries):
+            if test_id < 45:
+                print(f'skipping test {test_id}')
+                continue
             if dredd_covered_mutants_path.exists():
                 os.remove(dredd_covered_mutants_path)
-            if wgslsmith_generated_program.exists():
-                os.remove(wgslsmith_generated_program)
-            if generated_program_exe_compiled_with_no_mutants.exists():
-                os.remove(generated_program_exe_compiled_with_no_mutants)
-            if generated_program_exe_compiled_with_mutant_tracking.exists():
-                os.remove(generated_program_exe_compiled_with_mutant_tracking)
-           
+            
             # Run tests with unmutated Dawn to check if test passes
             #TODO: pass arguments
             run_unmutated_cmd = ['/data/dev/latest_dawn/tools/run',
@@ -160,11 +149,15 @@ def main():
             if regular_execution_result is None:
                 print("Runtime timeout.")
                 continue
-            if regular_execution_result.returncode != 0:
+
+            # Stdout contains 'FAIL:' if at least one test fails, else it does not
+            # contain this string
+            if 'FAIL:' in regular_execution_result.stdout.decode('utf-8'):
                 print(f"Std out:\n {regular_execution_result.stdout.decode('utf-8')}\n")
                 print(f"Std err:\n {regular_execution_result.stderr.decode('utf-8')}\n")
                 print("Execution of generated program failed without mutants.")
                 continue
+            
             else:
                 print("Execution of generated program succeeded without mutants.")
 
@@ -191,26 +184,20 @@ def main():
                 print(f"Std out:\n {mutant_tracking_result.stdout.decode('utf-8')}\n")
                 print(f"Std err:\n {mutant_tracking_result.stderr.decode('utf-8')}\n")
                 print("No mutant tracking file created.")
+                with open(Path(args.mutant_kill_path,f'tracking/no_tracking_file_{test_id}.txt'), 'w') as f:
+                    f.write(query)
                 continue
             else:
                 print("Mutant tracking compilation complete")
- 
+                with open(dredd_covered_mutants_path, 'r') as f:
+                    covered_mutants_info = f.read()
+                with open(Path(args.mutant_kill_path,f'tracking/mutant_tracking_file_{test_id}.txt'), 'w') as f:
+                    f.write(query)
+                    f.write(covered_mutants_info)
+
             print(f"Std out:\n {mutant_tracking_result.stdout.decode('utf-8')}\n")
             print(f"Std err:\n {mutant_tracking_result.stderr.decode('utf-8')}\n")
             
-          
-            # Try to create a directory for this WGSLsmith test. It is very unlikely that it already exists, but this could
-            # happen if two test workers pick the same seed. If that happens, this worker will skip the test.
-            cts_test_name: str = "query_" + query #TODO: some of these names are likely too long to be file names; assign an id instead
-            test_output_directory: Path = Path("work/tests/" + cts_test_name)
-            try:
-                test_output_directory.mkdir()
-            except FileExistsError:
-                print(f"Skipping test {cts_test_name} as a directory for it already exists")
-                continue
-            #TODO: copy test into output directory (or just query string?)
-            #shutil.copy(src=wg, dst=test_output_directory / "prog.wgsl")
-
             # Load file contents into a list. We go from list to set to list to eliminate duplicates.
             covered_by_this_test: List[int] = list(set([int(line.strip()) for line in
                                                         open(dredd_covered_mutants_path, 'r').readlines()]))
@@ -224,7 +211,7 @@ def main():
             
             for mutant in candidate_mutants_for_this_test:
 
-                mutant_path = Path("work/killed_mutants/" + str(mutant))
+                mutant_path = Path(args.mutant_kill_path,f'killed_mutants/{str(mutant)}')
                 if mutant_path.exists():
                     print("Skipping mutant " + str(mutant) + " as it is noted as already killed.")
                     unkilled_mutants.remove(mutant)
@@ -243,7 +230,7 @@ def main():
 
                 mutant_result = run_webgpu_cts_test_with_mutants(mutants=[mutant],
                         mutated_cmd=mutated_cmd,
-                        timeout=args.compile_timeout)
+                        timeout_seconds=args.compile_timeout)
                 print("Mutant result: " + str(mutant_result))
                  
                 if mutant_result == CTSKillStatus.SURVIVED:
@@ -259,7 +246,7 @@ def main():
                     mutant_path.mkdir()
                     print("Writing kill info to file.")
                     with open(mutant_path / "kill_info.json", "w") as outfile:
-                        json.dump({"killing_test": cts_test_name,
+                        json.dump({"killing_test": query,
                                    "kill_type": str(mutant_result)}, outfile)
                 except FileExistsError:
                     print(f"Mutant {mutant} was independently discovered to be killed.")
@@ -269,12 +256,12 @@ def main():
                 + covered_but_not_killed_by_this_test \
                 + already_killed_by_other_tests
             all_considered_mutants.sort()
-
+            
             killed_by_this_test.sort()
             covered_but_not_killed_by_this_test.sort()
             already_killed_by_other_tests.sort()
-            with open(test_output_directory / "kill_summary.json", "w") as outfile:
-                json.dump({"terminated_early": terminated_early,
+            with open(args.mutant_kill_path / f'kill_summary_{test_id}.json', "w") as outfile:
+                json.dump({"query": query,
                            "covered_mutants": covered_by_this_test,
                            "killed_mutants": killed_by_this_test,
                            "skipped_mutants": already_killed_by_other_tests,
