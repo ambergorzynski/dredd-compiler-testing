@@ -1,7 +1,7 @@
 #!/bin/sh
 
 NAME=ast_printer.cc
-FILE=src/tint/lang/glsl/writer/ast_printer/${NAME}
+FILE=src/tint/lang/spirv/writer/ast_printer/${NAME}
 
 #NAME=shader_io.cc
 #FILE=src/tint/lang/core/ir/transform/${NAME}
@@ -27,9 +27,9 @@ $DREDD --only-track-mutant-coverage \
     --mutation-info-file ${TRACKING}/dawn_tracking.json \
     ${TRACKING}/${FILE}
 
-cd ${TRACKING}/out/Debug && make
+cd ${TRACKING}/out/Debug && ninja dawn.node
 
 echo "Mutation tracking finished"
 
-cd '/data/work/tint_mutation_testing'
+cd '/data/dev/dredd-compiler-testing'
 
