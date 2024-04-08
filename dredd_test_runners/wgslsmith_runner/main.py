@@ -50,6 +50,9 @@ def main():
                         type=Path)
     parser.add_argument("wgslsmith_root", help="Path to a checkout of WGSLsmith", #TODO: check build exe location
                         type=Path)
+     parser.add_argument("mutant_kill_path",
+                        help="Directory in which to record mutant kill info and mutant killing tests.",
+                        type=Path)
     parser.add_argument("--generator_timeout",
                         default=20,
                         help="Time in seconds to allow for generation of a program.",
@@ -114,9 +117,9 @@ def main():
         # Make a work directory in which information about the mutant killing process will be stored. If this already
         # exists that's OK - there may be other processes working on mutant killing, or we may be continuing a job that
         # crashed previously.
-        Path("work").mkdir(exist_ok=True)
-        Path("work/tests").mkdir(exist_ok=True)
-        Path("work/killed_mutants").mkdir(exist_ok=True)
+        Path(args.mutant_kill_path).mkdir(exist_ok=True)
+        Path(args.mutant_kill_path, "tests").mkdir(exist_ok=True)
+        Path(args.mutant_kill_path, "killed_mutants").mkdir(exist_ok=True)
 
         while still_testing(total_test_time=args.total_test_time,
                             maximum_time_since_last_kill=args.maximum_time_since_last_kill,
@@ -249,7 +252,7 @@ def main():
             # Try to create a directory for this WGSLsmith test. It is very unlikely that it already exists, but this could
             # happen if two test workers pick the same seed. If that happens, this worker will skip the test.
             wgslsmith_test_name: str = "wgslsmith_" + str(wgslsmith_seed)
-            test_output_directory: Path = Path("work/tests/" + wgslsmith_test_name)
+            test_output_directory: Path = Path(args.mutant_kill_path, f'tests/{wgslsmith_test_name}')
             try:
                 test_output_directory.mkdir()
             except FileExistsError:
@@ -276,7 +279,7 @@ def main():
                                      time_of_last_kill=time_of_last_kill):
                     break
 
-                mutant_path = Path("work/killed_mutants/" + str(mutant))
+                mutant_path = Path(args.mutant_kill_path, f'killed_mutants/{str(mutant)}')
                 if mutant_path.exists():
                     print("Skipping mutant " + str(mutant) + " as it is noted as already killed.")
                     unkilled_mutants.remove(mutant)
