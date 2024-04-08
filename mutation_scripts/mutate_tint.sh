@@ -16,7 +16,9 @@ $DREDD -p ${MUTATED}/out/Debug/compile_commands.json \
     --mutation-info-file ${MUTATED}/dawn_mutated.json \
     ${MUTATED}/${FILE}
 
-cd ${MUTATED}/out/Debug && ninja dawn.node
+cd ${MUTATED}/out/Debug
+ninja dawn.node
+ninja
 
 echo "Tint mutation finished"
 
@@ -27,7 +29,9 @@ $DREDD --only-track-mutant-coverage \
     --mutation-info-file ${TRACKING}/dawn_tracking.json \
     ${TRACKING}/${FILE}
 
-cd ${TRACKING}/out/Debug && ninja dawn.node
+cd ${TRACKING}/out/Debug
+ninja dawn.node
+ninja
 
 echo "Mutation tracking finished"
 
