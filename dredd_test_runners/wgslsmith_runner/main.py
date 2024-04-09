@@ -50,7 +50,7 @@ def main():
                         type=Path)
     parser.add_argument("wgslsmith_root", help="Path to a checkout of WGSLsmith", #TODO: check build exe location
                         type=Path)
-     parser.add_argument("mutant_kill_path",
+    parser.add_argument("mutant_kill_path",
                         help="Directory in which to record mutant kill info and mutant killing tests.",
                         type=Path)
     parser.add_argument("--generator_timeout",
@@ -201,6 +201,7 @@ def main():
             run_cmd = [str(args.wgslsmith_root / "wgslsmith")] + compiler_args
             
             print("Running with unmutated WGSLsmith...")
+            print(f'Run cmd: {run_cmd}')
             run_time_start: float = time.time()
             regular_execution_result: ProcessResult = run_process_with_timeout(
                 cmd=run_cmd, timeout_seconds=args.run_timeout)
