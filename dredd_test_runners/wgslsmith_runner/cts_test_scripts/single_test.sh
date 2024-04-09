@@ -1,6 +1,6 @@
 #!/bin/sh
 
-DREDD_ENABLED_MUTATION=11 /data/dev/dawn_mutated/tools/run run-cts \
+/data/dev/dawn_mutated/tools/run run-cts \
     --verbose \
     --bin=/data/dev/dawn_mutant_tracking/out/Debug \
     --cts=/data/dev/webgpu_cts \
