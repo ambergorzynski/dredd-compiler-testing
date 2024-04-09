@@ -95,8 +95,8 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
 
-    #with tempfile.TemporaryDirectory() as temp_dir_for_generated_code:
-    with Path('/data/dev/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/temp') as temp_dir_for_generated_code:
+    with tempfile.TemporaryDirectory() as temp_dir_for_generated_code:
+        #with Path('/data/dev/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/temp') as temp_dir_for_generated_code:
         dredd_covered_mutants_path: Path = Path(temp_dir_for_generated_code, '__dredd_covered_mutants')
 
         killed_mutants: Set[int] = set()
@@ -120,13 +120,11 @@ def main():
         #test_queries = ['webgpu:api,operation,buffers,map_oom:*']
 
         # Shader queries only for now
-        test_queries = [t for t in test_queries if 'webgpu:shader' in t]
-        
+        #test_queries = [t for t in test_queries if 'webgpu:shader,validation,expression,call,builtin,asinh' in t]
+       
+        print(f'test queries: {test_queries}')
         # Loop over tests
         for (test_id, query) in enumerate(test_queries):
-            if test_id < 45:
-                print(f'skipping test {test_id}')
-                continue
             if dredd_covered_mutants_path.exists():
                 os.remove(dredd_covered_mutants_path)
             
