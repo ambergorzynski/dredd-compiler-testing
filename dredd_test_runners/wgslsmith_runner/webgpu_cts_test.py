@@ -72,6 +72,12 @@ def main():
                         help="Cease testing if a kill has not occurred for this length of time. Default is 24 hours. "
                              "To test indefinitely, pass 0.",
                         type=int)
+    parser.add_argument("--unittests_only",
+                        action=argparse.BooleanOptionalAction,
+                        help="Run unit tests only. Default is false.")
+    parser.add_argument("--cts_only",
+                        action=argparse.BooleanOptionalAction,
+                        help="Run CTS tests only. Default is false.")
     args = parser.parse_args()
 
     assert args.mutation_info_file != args.mutation_info_file_for_mutant_coverage_tracking
@@ -111,20 +117,34 @@ def main():
 
         # Get WebGPU CTS test queries as list
         #TODO: test_queries = get_test_queries()
-        webgpu_cts_path = Path('/data/dev/webgpu_cts/src/webgpu')
-    
+        webgpu_cts_path = Path('/data/dev/webgpu_cts/src/webgpu') 
         base_query_string = 'webgpu'
 
-        test_queries = get_tests(webgpu_cts_path, base_query_string)
+        cts_queries = get_tests(webgpu_cts_path, base_query_string)
         #test_queries = ['webgpu:shader,execution,flow_control,loop:*']
         #test_queries = ['webgpu:api,operation,buffers,map_oom:*']
 
-        # Shader queries only for now
+        # Shader queries only
         #test_queries = [t for t in test_queries if 'webgpu:shader,validation,expression,call,builtin,asinh' in t]
        
-        print(f'test queries: {test_queries}')
+        # Get WebGPU unit test queries as list
+        unittests_path = Path('/data/dev/webgpu_cts/src/unittests')
+        unittest_query_string = 'unittests'
+
+        unittest_queries = get_tests(unittests_path, unittest_query_string)
+
+        if args.unittests_only:
+            test_queries = unittest_queries
+        elif args.cts_only:
+            test_queries = cts_queries
+        else:
+            test_queries = unittest_queries + cts_queries
+
         # Loop over tests
         for (test_id, query) in enumerate(test_queries):
+
+            test_name = 'unit' if 'unittests:' in query else 'cts'
+            
             if dredd_covered_mutants_path.exists():
                 os.remove(dredd_covered_mutants_path)
             
@@ -174,7 +194,7 @@ def main():
                     query]            
             mutant_tracking_result : ProcessResult = run_process_with_timeout(cmd=tracking_compile_cmd, timeout_seconds=args.compile_timeout, env=tracking_environment) 
             #mutant_tracking_result = subprocess.run(tracking_compile_cmd, env=tracking_environment)
-
+            
             if mutant_tracking_result is None:
                 print("Mutant tracking compilation timed out.")
                 continue
@@ -182,14 +202,14 @@ def main():
                 print(f"Std out:\n {mutant_tracking_result.stdout.decode('utf-8')}\n")
                 print(f"Std err:\n {mutant_tracking_result.stderr.decode('utf-8')}\n")
                 print("No mutant tracking file created.")
-                with open(Path(args.mutant_kill_path,f'tracking/no_tracking_file_{test_id}.txt'), 'w') as f:
+                with open(Path(args.mutant_kill_path,f'tracking/no_tracking_file_{test_name}_{test_id}.txt'), 'w') as f:
                     f.write(query)
                 continue
             else:
                 print("Mutant tracking compilation complete")
                 with open(dredd_covered_mutants_path, 'r') as f:
                     covered_mutants_info = f.read()
-                with open(Path(args.mutant_kill_path,f'tracking/mutant_tracking_file_{test_id}.txt'), 'w') as f:
+                with open(Path(args.mutant_kill_path,f'tracking/mutant_tracking_file_{test_name}_{test_id}.txt'), 'w') as f:
                     f.write(query)
                     f.write(covered_mutants_info)
 
@@ -230,8 +250,52 @@ def main():
                         mutated_cmd=mutated_cmd,
                         timeout_seconds=args.compile_timeout)
                 print("Mutant result: " + str(mutant_result))
-                 
-                if mutant_result == CTSKillStatus.SURVIVED:
+
+                print("Killing mutant GPU processes")
+                                       
+                nvidia_smi = subprocess.Popen(
+                        ["nvidia-smi"], 
+                        stdout=subprocess.PIPE
+                        )
+                processes = subprocess.Popen(
+                        ["grep","node"], 
+                        stdin=nvidia_smi.stdout, 
+                        stdout=subprocess.PIPE, 
+                        text=True
+                        )
+
+                p_output, p_error = processes.communicate()
+                print(f'Node return code: {processes.returncode}')
+
+                if processes.returncode == 0:
+      
+                    nvidia_smi = subprocess.Popen(
+                            ["nvidia-smi"], 
+                            stdout=subprocess.PIPE
+                            )
+                    processes = subprocess.Popen(
+                            ["grep","node"], 
+                            stdin=nvidia_smi.stdout, 
+                            stdout=subprocess.PIPE, 
+                            text=True
+                            )
+                    pid_to_kill = subprocess.Popen(
+                            ["awk","{ print $5 }"],
+                            stdin=processes.stdout,
+                            stdout=subprocess.PIPE,
+                            text=True
+                            )
+                    kill = subprocess.Popen(
+                            ["xargs", "-n1", "kill", "-9"],
+                            stdin=pid_to_kill.stdout,
+                            stdout=subprocess.PIPE,
+                            text=True
+                            )
+                    
+                    output, error = kill.communicate()
+                    print('Dead!') 
+
+                if mutant_result == CTSKillStatus.SURVIVED or mutant_result == CTSKillStatus.TEST_TIMEOUT:
                     covered_but_not_killed_by_this_test.append(mutant)
                     continue
 
@@ -258,7 +322,7 @@ def main():
             killed_by_this_test.sort()
             covered_but_not_killed_by_this_test.sort()
             already_killed_by_other_tests.sort()
-            with open(args.mutant_kill_path / f'kill_summary_{test_id}.json', "w") as outfile:
+            with open(args.mutant_kill_path / f'kill_summary_{test_name}_{test_id}.json', "w") as outfile:
                 json.dump({"query": query,
                            "covered_mutants": covered_by_this_test,
                            "killed_mutants": killed_by_this_test,
