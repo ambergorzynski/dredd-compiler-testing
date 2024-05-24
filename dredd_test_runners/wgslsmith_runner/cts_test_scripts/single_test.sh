@@ -1,12 +1,14 @@
 #!/bin/sh
 
-/data/dev/dawn_mutated/tools/run run-cts \
+DREDD_ENABLED_MUTATION=15 /data/dev/dawn_mutated/tools/run run-cts \
     --verbose \
-    --bin=/data/dev/dawn_mutant_tracking/out/Debug \
+    --bin=/data/dev/dawn_mutated/out/Debug \
     --cts=/data/dev/webgpu_cts \
-    'webgpu:shader,execution,flow_control,loop:*'    
-#'webgpu:examples:gpu,buffers:*'
+    'webgpu:shader,mutate:*'
+    #'webgpu:api,operation,command_buffer,copyTextureToTexture:*'
+    #'webgpu:api,operation,buffers,map_oom:*'
+    #'webgpu:examples:gpu,buffers:*'
 
-#    'webgpu:api,operation,buffers,map_oom:*'
+    #'webgpu:shader,execution,flow_control,loop:*'    
 
 

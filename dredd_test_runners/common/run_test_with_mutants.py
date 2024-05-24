@@ -9,10 +9,12 @@ from dredd_test_runners.common.constants import (MIN_TIMEOUT_FOR_MUTANT_COMPILAT
                                                  TIMEOUT_MULTIPLIER_FOR_MUTANT_EXECUTION)
 from dredd_test_runners.common.hash_file import hash_file
 from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
+from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import get_failures
 
 class CTSKillStatus(Enum):
     SURVIVED = 1
-    KILLED = 2
+    KILL_TEST_FAIL = 2
+    TEST_TIMEOUT = 3
 
 class KillStatus(Enum):
     SURVIVED_IDENTICAL = 1
@@ -77,7 +79,7 @@ def run_wgslsmith_test_with_mutants(mutants: List[int],
                           compile_time: float,
                           run_time: float,
                           execution_result_non_mutated: ProcessResult,
-                          mutant_exe_path: Path) -> KillStatus:
+                          mutant_exe_path: Path) -> (KillStatus, ProcessResult):
     mutated_environment = os.environ.copy()
     mutated_environment["DREDD_ENABLED_MUTATION"] = ','.join([str(m) for m in mutants])
     
@@ -88,36 +90,47 @@ def run_wgslsmith_test_with_mutants(mutants: List[int],
 
     mutated_result: ProcessResult = run_process_with_timeout(
             cmd = mutated_cmd,
-            timeout_seconds=int(max(
-            MIN_TIMEOUT_FOR_MUTANT_COMPILATION,
-            TIMEOUT_MULTIPLIER_FOR_MUTANT_COMPILATION * compile_time)),
+            timeout_seconds=compile_time,
             env=mutated_environment)
     
 
     if mutated_result is None:
-        return KillSatus.KILL_COMPILER_TIMEOUT
+        return (KillSatus.KILL_COMPILER_TIMEOUT, None)
 
     if mutated_result.returncode != 0:
-        return KillStatus.KILL_COMPILER_CRASH
+        return (KillStatus.KILL_COMPILER_CRASH, mutated_result)
 
-    #TODO: Adjust byte output comparison for padding 
-    # and extract byte array (rather than comparing whole string)
     if execution_result_non_mutated.returncode != mutated_result.returncode:
-        return KillStatus.KILL_DIFFERENT_EXIT_CODES
+        return (KillStatus.KILL_DIFFERENT_EXIT_CODES, mutated_result)
 
     if execution_result_non_mutated.stdout != mutated_result.stdout:
-        print(f'Unmutated:\n {execution_result_non_mutated.stdout.decode("utf-8")}')
-        print(f'Mutated:\n {mutated_result.stdout.decode("utf-8")}')
-        return KillStatus.KILL_DIFFERENT_STDOUT
+
+        non_mutated_output = get_wgslsmith_output(execution_result_non_mutated.stdout)
+        mutated_output = get_wgslsmith_output(mutated_result.stdout)
+        
+        if mutated_output is None:
+            return (KillStatus.KILL_RUNTIME_TIMEOUT, mutated_result)
+
+        if non_mutated_output != mutated_output:
+            print(f'Unmutated:\n {execution_result_non_mutated.stdout.decode("utf-8")}')
+            print(f'Mutated:\n {mutated_result.stdout.decode("utf-8")}')
+            
+            return (KillStatus.KILL_DIFFERENT_STDOUT, mutated_result)
+
+        # if stdouts differ but not for timeout or different output array reasons,
+        # then the mutant is not being killed
 
     if execution_result_non_mutated.stderr != mutated_result.stderr:
-        return KillStatus.KILL_DIFFERENT_STDERR
+        return (KillStatus.KILL_DIFFERENT_STDERR, mutated_result)
     
-    return KillStatus.SURVIVED_IDENTICAL
+    return (KillStatus.SURVIVED_IDENTICAL, mutated_result)
 
 def run_webgpu_cts_test_with_mutants(mutants: List[int],
                           mutated_cmd : str,
-                          timeout_seconds : int) -> CTSKillStatus:
+                          timeout_seconds : int,
+                          failed_tests : int) -> (CTSKillStatus, ProcessResult):
+    print(f'Timeout is {timeout_seconds}')
+
     mutated_environment = os.environ.copy()
     mutated_environment["DREDD_ENABLED_MUTATION"] = ','.join([str(m) for m in mutants])
     
@@ -126,10 +139,35 @@ def run_webgpu_cts_test_with_mutants(mutants: List[int],
             env=mutated_environment,
             timeout_seconds=timeout_seconds)
 
+    if mutated_result is None:
+        return (CTSKillStatus.TEST_TIMEOUT, mutated_result)
+    
     # Mutated stdout contains 'FAIL:' if at least one test failed
     # otherwise it does not contain this string
-    if 'FAIL:' in mutated_result.stdout.decode('utf-8'):
-        return CTSKillStatus.KILLED
+    if failed_tests == 0 and 'FAIL:' in mutated_result.stdout.decode('utf-8'):
 
-    return CTSKillStatus.SURVIVED
+        return (CTSKillStatus.KILL_TEST_FAIL, mutated_result)
 
+    # if some tests already failed on unmutated dawn, must check
+    # whether additional tests failed when the mutation is enabled
+    if failed_tests != 0 and 'FAIL:' in mutated_result.stdout.decode('utf-8'):
+        mutated_failures = get_failures(mutated_result.stdout.decode('utf-8'))
+        
+        if mutated_failures > failed_tests:
+            return (CTSKillStatus.KILL_TEST_FAIL, mutated_result)
+
+    return (CTSKillStatus.SURVIVED, mutated_result)
+
+def get_wgslsmith_output(stdout) -> list[int]:
+    
+    output = stdout.decode("utf-8")
+    
+    if output.find('timeout') != -1:
+        return None
+
+    output_start_index = output.find('outputs') + 18
+    output_end_index = output.rfind(']')
+    output = output[output_start_index:output_end_index].split(", ")
+    output = [int(o) for o in output]
+
+    return output

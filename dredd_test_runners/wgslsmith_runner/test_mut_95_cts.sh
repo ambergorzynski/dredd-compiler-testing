@@ -2,12 +2,12 @@
 
 BASE=/data/dev
 
-MUTATED_PATH="${BASE}/dawn_mutated_transform"
-TRACKING_PATH="${BASE}/dawn_mutant_tracking_transform"
+MUTATED_PATH="${BASE}/dawn_mutated"
+TRACKING_PATH="${BASE}/dawn_mutant_tracking"
 
 MUTATION_INFO_FILE="${MUTATED_PATH}/dawn_mutated.json"
 MUTATION_INFO_FILE_FOR_MUTANT_COVERAGE_TRACKING="${TRACKING_PATH}/dawn_tracking.json"
-MUTANT_KILL_PATH="/data/work/tint_mutation_testing/transform_cts"
+MUTANT_KILL_PATH="/data/work/tint_mutation_testing/test_mut_95"
 
 export PYTHONPATH=${BASE}/dredd-compiler-testing
 
