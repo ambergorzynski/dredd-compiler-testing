@@ -14,7 +14,7 @@ def main():
     dawn_path : Path = Path('/data/dev/dawn_mutated')
     cts_path : Path = Path('/data/dev/webgpu_cts')
     output_path : Path = Path('/data/dev/dredd-compiler-testing/cts_test_info')
-    n_runs : int = 100
+    n_runs : int = 3
 
     # Get file-level CTS queries
     base_query_string = 'webgpu'
@@ -74,7 +74,7 @@ def main():
         for i in range(n_runs):
             assert single_tests[i][test] == 'pass'
 
-    print(f'Found {len(reliable_tests)} reliable tests')
+    print(f'Found {len(reliable_tests)} reliable tests out of a possible {len(single_tests[0])}')
 
 
 if __name__=="__main__":

@@ -23,7 +23,6 @@ def kill_gpu_processes(id : str):
             )
 
     p_output, p_error = processes.communicate()
-    print(f'Node return code: {processes.returncode}')
 
     if processes.returncode == 0:
 
@@ -51,7 +50,7 @@ def kill_gpu_processes(id : str):
                 )
         
         output, error = kill.communicate()
-        print('Dead!') 
+        print('GPU processes dead!') 
 
 def get_single_tests_from_stdout(filename : Path) -> dict[str,str]:
     '''
