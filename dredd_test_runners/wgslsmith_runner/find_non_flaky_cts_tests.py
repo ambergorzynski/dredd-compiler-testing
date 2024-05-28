@@ -12,7 +12,7 @@ from pathlib import Path
 
 def main():
     print(platform.platform())
-    base : Path = Path('/data/dev/') if 'ubuntu' in platform.platform() else Path('/Users/ambergorzynski/dev')
+    base : Path = Path('/data/dev/') if 'Linux' in platform.platform() else Path('/Users/ambergorzynski/dev')
     dawn_path : Path = Path(base, 'dawn')
     cts_path : Path = Path(base, 'webgpu_cts')
     output_path : Path = Path(base, 'dredd-compiler-testing/cts_test_info')
@@ -55,7 +55,7 @@ def main():
             # Kill gpu processes - this is not done automatically
             # when running tests individually, which messes up
             # future tests
-            if 'ubuntu' in platform.platform():
+            if 'Linux' in platform.platform():
                 kill_gpu_processes('node')
             
         # Parse stdout to get a list of individual tests and their statuses
