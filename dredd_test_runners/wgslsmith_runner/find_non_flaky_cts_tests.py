@@ -1,3 +1,4 @@
+import platform
 import sys
 import os
 
@@ -10,11 +11,12 @@ from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import kill_gpu_proces
 from pathlib import Path
 
 def main():
-    
-    dawn_path : Path = Path('/data/dev/dawn_mutated')
-    cts_path : Path = Path('/data/dev/webgpu_cts')
-    output_path : Path = Path('/data/dev/dredd-compiler-testing/cts_test_info')
-    n_runs : int = 3
+    print(platform.platform())
+    base : Path = Path('/data/dev/') if 'ubuntu' in platform.platform() else Path('/Users/ambergorzynski/dev')
+    dawn_path : Path = Path(base, 'dawn')
+    cts_path : Path = Path(base, 'webgpu_cts')
+    output_path : Path = Path(base, 'dredd-compiler-testing/cts_test_info')
+    n_runs : int = 10 
 
     # Get file-level CTS queries
     base_query_string = 'webgpu'
@@ -53,7 +55,8 @@ def main():
             # Kill gpu processes - this is not done automatically
             # when running tests individually, which messes up
             # future tests
-            kill_gpu_processes('node')
+            if 'ubuntu' in platform.platform():
+                kill_gpu_processes('node')
             
         # Parse stdout to get a list of individual tests and their statuses
         single_tests.append(get_single_tests_from_stdout(output_file))   
@@ -65,12 +68,12 @@ def main():
     reliable_tests = results[0]
 
     for i in range (1, n_runs):
+        print(f'{len(results[i])} tests pass in run {i}')
         reliable_tests &= results[i]
 
     # Check
     print('Tests:')
     for test in reliable_tests:
-        print(test)
         for i in range(n_runs):
             assert single_tests[i][test] == 'pass'
 
