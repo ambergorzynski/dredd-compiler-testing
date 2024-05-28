@@ -1,3 +1,4 @@
+from enum import Enum
 import platform
 import sys
 import os
@@ -10,10 +11,16 @@ from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import kill_gpu_proces
 
 from pathlib import Path
 
+class Plat(Enum):
+    LINUX=1
+    MACOS=2
+
 def main():
     print(platform.platform())
-    base : Path = Path('/data/dev/') if 'Linux' in platform.platform() else Path('/Users/ambergorzynski/dev')
-    dawn_path : Path = Path(base, 'dawn')
+    system = Plat.LINUX if 'Linux' in platform.platform() else Plat.MACOS
+    base : Path = Path('/data/dev/') if system == Plat.LINUX else Path('/Users/ambergorzynski/dev')
+    dawn_path : Path=Path(base, 'dawn')
+    #dawn_path : Path = Path(base, 'dawn_mutated') if system == Plat.LINUX else Path(base, 'dawn')
     cts_path : Path = Path(base, 'webgpu_cts')
     output_path : Path = Path(base, 'dredd-compiler-testing/cts_test_info')
     n_runs : int = 10 
