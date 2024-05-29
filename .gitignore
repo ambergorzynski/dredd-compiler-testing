@@ -1,3 +1,4 @@
+*.json
 # Temporary and backup files
 *~
 *.bak
