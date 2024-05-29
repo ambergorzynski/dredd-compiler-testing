@@ -62,7 +62,7 @@ def get_single_tests_from_stdout(filename : Path) -> dict[str,str]:
     with open(filename, 'r') as f:
         lines = f.readlines()
 
-    test_lines = [i for i in lines if 'pass:' in i or 'fail:' in i or 'skip:' in i]
+    test_lines = [i for i in lines if ' - pass:' in i or ' - fail:' in i or ' - skip:' in i]
 
     tests = {t[:t.index(' ')] : t[t.index(' - ')+3:].replace(':','').strip() for t in test_lines}
 
