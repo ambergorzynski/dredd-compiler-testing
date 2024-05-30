@@ -147,18 +147,28 @@ def main():
             if 'Linux' in platform.platform():
                 kill_gpu_processes('node')
 
-            # Record stdout and outcomes
-            with open(output_file, 'a') as f:
-                f.write(result.stderr.decode('utf-8'))
-                f.write(result.stdout.decode('utf-8'))
+            try:
+                # Record stdout and outcomes
+                with open(output_file, 'a') as f:
+                    f.write(result.stderr.decode('utf-8'))
+                    f.write(result.stdout.decode('utf-8'))
 
-            output = result.stdout.decode('utf-8').split('\n')
+                output = result.stdout.decode('utf-8').split('\n')
 
-            query_status = get_single_tests_from_stdout(output)
+                query_status = get_single_tests_from_stdout(output)
 
-            with open(summary_file, 'a') as f:
-                for (query,status) in query_status.items():
-                    f.write(f'{query} - {status}\n')      
+                with open(summary_file, 'a') as f:
+                    for (query,status) in query_status.items():
+                        f.write(f'{query} - {status}\n')      
+            except:
+                print('Problem extracting stdout information!')
+                
+                try:
+                    with open(manual_check_file, 'a') as f:
+                        f.write(f'Problem extracting stdout information for query: {query}\n')
+                
+                except:
+                    print('Problem writing to manual check file!')
             
         # Parse stdout to get a list of individual tests and their statuses
         single_tests.append(get_single_tests_from_file(output_file))   
@@ -169,14 +179,14 @@ def main():
     # Find the tests that pass on all three runs
     reliable_tests = results[0]
 
-    for i in range (1, n_runs):
+    for i in range (1, args.n_runs):
         print(f'{len(results[i])} tests pass in run {i}')
         reliable_tests &= results[i]
 
     # Check
     print('Tests:')
     for test in reliable_tests:
-        for i in range(n_runs):
+        for i in range(args.n_runs):
             assert single_tests[i][test] == 'pass'
 
     print(f'Found {len(reliable_tests)} reliable tests out of a possible {len(single_tests[0])}')
