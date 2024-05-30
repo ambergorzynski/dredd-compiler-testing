@@ -52,9 +52,9 @@ def kill_gpu_processes(id : str):
         output, error = kill.communicate()
         print('GPU processes dead!') 
 
-def get_single_tests_from_stdout(filename : Path) -> dict[str,str]:
+def get_single_tests_from_file(filename : Path) -> dict[str,str]:
     '''
-    Parses stdout from running the WebGPU CTS to retrieve a 
+    Parses file containing stdout from running the WebGPU CTS to retrieve a 
     dictionary containing all individual tests and their
     status (pass; fail; skip)
     '''
@@ -62,7 +62,17 @@ def get_single_tests_from_stdout(filename : Path) -> dict[str,str]:
     with open(filename, 'r') as f:
         lines = f.readlines()
 
-    test_lines = [i for i in lines if ' - pass:' in i or ' - fail:' in i or ' - skip:' in i]
+    return get_single_tests_from_stdout(lines)
+
+
+
+def get_single_tests_from_stdout(stdout : list) -> dict[str,str]:
+    '''
+    Parses list containing stdout from running the WebGPU CTS to retrieve a 
+    dictionary containing all individual tests and their
+    status (pass; fail; skip)
+    '''
+    test_lines = [i for i in stdout if ' - pass:' in i or ' - fail:' in i or ' - skip:' in i]
 
     tests = {t[:t.index(' ')] : t[t.index(' - ')+3:].replace(':','').strip() for t in test_lines}
 

@@ -9,7 +9,7 @@ sys.path.append('../..')
 
 from dredd_test_runners.common.constants import DEFAULT_COMPILATION_TIMEOUT, DEFAULT_RUNTIME_TIMEOUT
 from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
-from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import kill_gpu_processes, get_tests, get_single_tests_from_stdout
+from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import kill_gpu_processes, get_single_tests_from_stdout, get_single_tests_from_file
 
 from pathlib import Path
 
@@ -90,7 +90,7 @@ def main():
                 kill_gpu_processes('node')
             
             # Parse stdout to get a list of individual tests and their statuses
-            queries = list(get_single_tests_from_stdout(args.query_file).keys())
+            queries = list(get_single_tests_from_file(args.query_file).keys())
             individual_cts_queries.extend(queries) 
             print(f'Number of individual tests: {len(queries)}')
             print(f'Running total of individual tests: {len(individual_cts_queries)}')
@@ -120,10 +120,14 @@ def main():
     # Run CTS three times to determine which tests always pass
     for i in range(args.n_runs):
     
-        output_file = Path(args.output_path, f'test_output_{i}.txt')
+        output_file = Path(args.output_path, f'test_stdout_{i}.txt')
+        summary_file = Path(args.output_path, f'test_summary_{i}.txt')
  
         if output_file.exists():
             os.remove(output_file)
+        
+        if summary_file.exists():
+            os.remove(summary_file)
 
         for query in individual_cts_queries:        
             cmd = [f'{args.dawn_path}/tools/run',
@@ -137,18 +141,27 @@ def main():
             result: ProcessResult = run_process_with_timeout(
                     cmd=cmd, timeout_seconds=None)
 
-            with open(output_file, 'a') as f:
-                f.write(result.stderr.decode('utf-8'))
-                f.write(result.stdout.decode('utf-8'))
-
-            # Kill gpu processes - this is not done automatically
+            # Kill gpu processes - this is not always done automatically
             # when running tests individually, which messes up
             # future tests
             if 'Linux' in platform.platform():
                 kill_gpu_processes('node')
+
+            # Record stdout and outcomes
+            with open(output_file, 'a') as f:
+                f.write(result.stderr.decode('utf-8'))
+                f.write(result.stdout.decode('utf-8'))
+
+            output = result.stdout.decode('utf-8').split('\n')
+
+            query_status = get_single_tests_from_stdout(output)
+
+            with open(summary_file, 'a') as f:
+                for (query,status) in query_status.items():
+                    f.write(f'{query} - {status}\n')      
             
         # Parse stdout to get a list of individual tests and their statuses
-        single_tests.append(get_single_tests_from_stdout(output_file))   
+        single_tests.append(get_single_tests_from_file(output_file))   
 
         # Keep the individual tests that pass
         results.append(set([query for (query, status) in single_tests[i].items() if status == 'pass']))
