@@ -3,6 +3,7 @@ import platform
 import sys
 import os
 import json
+import argparse
 
 sys.path.append('../..')
 
@@ -17,71 +18,91 @@ class Plat(Enum):
     MACOS=2
 
 def main():
-    print(platform.platform())
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("dawn_path",
+                        help="Absolute file path to Dawn.",
+                        type=Path)
+    parser.add_argument("cts_path",
+                        help="Absolute file path to WebGPU CTS.",
+                        type=Path)
+    parser.add_argument("output_path",
+                        help="Absolute file path to output location where results should be stored.",
+                        type=Path),
+    parser.add_argument("query_file",
+                        help="Absolute file path to list of individual CTS queries.",
+                        type=Path)
+    parser.add_argument("--update_queries",
+                        default=False,
+                        action=argparse.BooleanOptionalAction,
+                        help="Update CTS individual tests instead of getting from existing list. Default is false.")
+    parser.add_argument("--n_runs",
+                        default=3,
+                        help="Number of times to run the CTS to check stability. Default is 3.",
+                        type=int)
+    args = parser.parse_args()
+
+    if not args.query_file.exists() and not args.update_queries:
+        print('Query file does not exist! You must update queries if your query file does not yet exist!')
+        exit(1)                    
+
     system = Plat.LINUX if 'Linux' in platform.platform() else Plat.MACOS
-    base : Path = Path('/data/dev/') if system == Plat.LINUX else Path('/Users/ambergorzynski/dev')
-    dawn_path : Path=Path(base, 'dawn')
-    #dawn_path : Path = Path(base, 'dawn_mutated') if system == Plat.LINUX else Path(base, 'dawn')
-    cts_path : Path = Path(base, 'webgpu_cts')
-    output_path : Path = Path(base, 'dredd-compiler-testing/cts_test_info')
-    get_tests_file :Path = Path(output_path, 'test_info.txt')
-    manual_check_file : Path = Path(output_path, 'manual_checks.txt')
-    individual_queries_file :Path = Path(output_path, 'individual_queries.json')
-    n_runs : int = 10 
+    
+    manual_check_file : Path = Path(args.output_path, 'manual_checks.txt')
+    
+    individual_queries_file :Path = Path(args.output_path, 'individual_queries.json')
 
-    # Get file-level CTS queries
-    base_query_string = 'webgpu'
-    cts_queries = get_tests(Path(cts_path,'src/webgpu'), base_query_string)
+    if args.update_queries:
 
-    # Temporary
-    #cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:*']
-    #cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:sampled_and_multisampled:format="r32sint";aspect="all";samples=1']
+        #cts_queries = ['webgpu:*']
+        cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:*']
+        #cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:sampled_and_multisampled:format="r32sint";aspect="all";samples=1']
 
-    individual_cts_queries = []
+        individual_cts_queries = []
 
-    if manual_check_file.exists():
-        os.remove(get_tests_file)
+        if manual_check_file.exists():
+            os.remove(manual_check_file)
 
-    # Run file-level test once to get individual tests
-    for query in cts_queries:        
-        cmd = [f'{dawn_path}/tools/run',
-            'run-cts', 
-            '--verbose',
-            f'--bin={dawn_path}/out/Debug',
-            f'--cts={cts_path}',
-            query]
+        for query in cts_queries:        
+            cmd = [f'{args.dawn_path}/tools/run',
+                'run-cts', 
+                '--verbose',
+                f'--bin={args.dawn_path}/out/Debug',
+                f'--cts={args.cts_path}',
+                query]
 
-        print(f'Get individual tests from file query:\n{query}')
-        result: ProcessResult = run_process_with_timeout(
-                cmd=cmd, timeout_seconds=None)
- 
-        if get_tests_file.exists():
-            os.remove(get_tests_file)
+            print(f'Get individual tests from query:\n{query}')
+            result: ProcessResult = run_process_with_timeout(
+                    cmd=cmd, timeout_seconds=None)
+    
+            if args.query_file.exists():
+                os.remove(args.query_file)
 
-        with open(get_tests_file, 'w') as f:
-            f.write(result.stderr.decode('utf-8'))
-            f.write(result.stdout.decode('utf-8'))
-
-        # Kill gpu processes - sometimes this is not done automatically
-        # when running tests individually, which messes up
-        # future tests
-        if 'Linux' in platform.platform():
-            kill_gpu_processes('node')
-        
-        # Parse stdout to get a list of individual tests and their statuses
-        queries = list(get_single_tests_from_stdout(get_tests_file).keys())
-        individual_cts_queries.extend(queries) 
-        print(f'Number of individual tests: {len(queries)}')
-        print(f'Running total of individual tests: {len(individual_cts_queries)}')
-
-        # Record any file level queries that resulted in zero individual queries
-        # for manual checking. This can happen if a file exists that does not export
-        # any tests, e.g. while it is still under development
-        if len(queries) == 0:
-            with open(manual_check_file, 'a') as f:
-                f.write(f'Query: {query}')
+            with open(args.query_file, 'w') as f:
                 f.write(result.stderr.decode('utf-8'))
                 f.write(result.stdout.decode('utf-8'))
+
+            # Kill gpu processes - sometimes this is not done automatically
+            # when running tests individually, which messes up
+            # future tests
+            if 'Linux' in platform.platform():
+                kill_gpu_processes('node')
+            
+            # Parse stdout to get a list of individual tests and their statuses
+            queries = list(get_single_tests_from_stdout(args.query_file).keys())
+            individual_cts_queries.extend(queries) 
+            print(f'Number of individual tests: {len(queries)}')
+            print(f'Running total of individual tests: {len(individual_cts_queries)}')
+
+            # Record any file level queries that resulted in zero individual queries
+            # for manual checking. This can happen if a file exists that does not export
+            # any tests, e.g. while it is still under development
+            if len(queries) == 0:
+                with open(manual_check_file, 'a') as f:
+                    f.write(f'Query: {query}')
+                    f.write(result.stderr.decode('utf-8'))
+                    f.write(result.stdout.decode('utf-8'))
 
 
     # Exit if there are no individual queries to run
@@ -97,19 +118,19 @@ def main():
         json.dump(individual_cts_queries, f, indent=2)
 
     # Run CTS three times to determine which tests always pass
-    for i in range(n_runs):
+    for i in range(args.n_runs):
     
-        output_file = Path(output_path, f'test_output_{i}.txt')
+        output_file = Path(args.output_path, f'test_output_{i}.txt')
  
         if output_file.exists():
             os.remove(output_file)
 
         for query in individual_cts_queries:        
-            cmd = [f'{dawn_path}/tools/run',
+            cmd = [f'{args.dawn_path}/tools/run',
                 'run-cts', 
                 '--verbose',
-                f'--bin={dawn_path}/out/Debug',
-                f'--cts={cts_path}',
+                f'--bin={args.dawn_path}/out/Debug',
+                f'--cts={args.cts_path}',
                 query]
         
             print(f'Run {i} query: {query}')
