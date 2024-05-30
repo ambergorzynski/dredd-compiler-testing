@@ -55,8 +55,8 @@ def main():
 
     if args.update_queries:
 
-        #cts_queries = ['webgpu:*']
-        cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:*']
+        cts_queries = ['webgpu:*']
+        #cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:*']
         #cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:sampled_and_multisampled:format="r32sint";aspect="all";samples=1']
 
         individual_cts_queries = []

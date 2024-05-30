@@ -72,7 +72,7 @@ def get_single_tests_from_stdout(stdout : list) -> dict[str,str]:
     dictionary containing all individual tests and their
     status (pass; fail; skip)
     '''
-    test_lines = [i for i in stdout if ' - pass:' in i or ' - fail:' in i or ' - skip:' in i]
+    test_lines = [i for i in stdout if ' - pass' in i or ' - fail' in i or ' - skip' in i]
 
     tests = {t[:t.index(' ')] : t[t.index(' - ')+3:].replace(':','').strip() for t in test_lines}
 
@@ -220,10 +220,10 @@ def main():
 
 def getlines():
     
-    path = Path('/data/dev/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/cts_test_scripts/attempt1.txt')
+    path = Path('/data/dev/dredd-compiler-testing/output/query_file.txt')
 
-    get_single_tests_from_stdout(path) 
+    return get_single_tests_from_file(path) 
 
 if __name__=="__main__":
     #main()
-    getlines()
+    output = getlines()
