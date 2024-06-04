@@ -282,11 +282,7 @@ def main():
             print(f'Mutation tracking tree: {mutation_tree_for_coverage_tracking.num_mutations}')
             print(f'Covered: {covered_by_this_test}')
             #continue
-            
-            assignment_mutants = [95,96,97,98,99,100,101,102,103,104]
-            candidate_mutants_for_this_test = [m for m in assignment_mutants if m not in killed_mutants]
-            print("Number of mutants to try (short): " + str(len(candidate_mutants_for_this_test)))
-            
+                       
             logger.info(f'Number of mutants to try: {str(len(candidate_mutants_for_this_test))}')
             for mutant in candidate_mutants_for_this_test:
 
@@ -314,6 +310,8 @@ def main():
                         failed_tests=failed_tests)
                 
                 kill_gpu_processes('node')
+
+                print(f'Mutant result: {mutant_result}')
 
                 if mutant_result == CTSKillStatus.SURVIVED or mutant_result == CTSKillStatus.TEST_TIMEOUT:
                     covered_but_not_killed_by_this_test.append(mutant)
