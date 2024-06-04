@@ -173,9 +173,6 @@ def main():
             with open(args.query_file, 'r') as f:
                 test_queries = json.load(f)
 
-        print(f'len of test queries is {len(test_queries)}')
-        exit()
-
         # Loop over tests
         for query in test_queries:
 
