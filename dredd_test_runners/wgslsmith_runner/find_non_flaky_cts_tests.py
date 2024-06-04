@@ -41,18 +41,21 @@ def main():
                         default=3,
                         help="Number of times to run the CTS to check stability. Default is 3.",
                         type=int)
+    parser.add_argument("--parse_stdout_only",
+                        default= False,
+                        action=argparse.BooleanOptionalAction,
+                        help="Parse existing stdout without re-running tests.")
     args = parser.parse_args()
 
     if not args.query_file.exists() and not args.update_queries:
         print('Query file does not exist! You must update queries if your query file does not yet exist!')
         exit(1)                    
 
-    system = Plat.LINUX if 'Linux' in platform.platform() else Plat.MACOS
-    
+   
     manual_check_file : Path = Path(args.output_path, 'manual_checks.txt')
-    
     individual_queries_file :Path = Path(args.output_path, 'individual_queries.json')
-
+    reliable_tests_file : Path = Path(args.output_path, 'reliable_tests.json')
+    
     if args.update_queries:
 
         cts_queries = ['webgpu:*']
@@ -100,76 +103,84 @@ def main():
             # any tests, e.g. while it is still under development
             if len(queries) == 0:
                 with open(manual_check_file, 'a') as f:
-                    f.write(f'Query: {query}')
+                    f.write(f'File query resulted in zero individual queries: {query}')
                     f.write(result.stderr.decode('utf-8'))
                     f.write(result.stdout.decode('utf-8'))
+                    f.write('END\n')
 
 
-    # Exit if there are no individual queries to run
-    if len(individual_cts_queries) == 0:
-        print('No individual queries to run!')
-        exit()
+        # Exit if there are no individual queries to run
+        if len(individual_cts_queries) == 0:
+            print('No individual queries to run!')
+            exit()
+
+        # Save individual queries
+        with open(individual_queries_file, 'w') as f:
+            json.dump(individual_cts_queries, f, indent=2)
 
     results = []
     single_tests = []
 
-    # Save individual queries
-    with open(individual_queries_file, 'w') as f:
-        json.dump(individual_cts_queries, f, indent=2)
-
-    # Run CTS three times to determine which tests always pass
-    for i in range(args.n_runs):
+    if not args.parse_stdout_only:
+        # Run CTS multiple times to determine which tests always pass
+        for i in range(args.n_runs):
+        
+            output_file = Path(args.output_path, f'test_stdout_{i}.txt')
+            summary_file = Path(args.output_path, f'test_summary_{i}.txt')
     
-        output_file = Path(args.output_path, f'test_stdout_{i}.txt')
-        summary_file = Path(args.output_path, f'test_summary_{i}.txt')
- 
-        if output_file.exists():
-            os.remove(output_file)
-        
-        if summary_file.exists():
-            os.remove(summary_file)
-
-        for query in individual_cts_queries:        
-            cmd = [f'{args.dawn_path}/tools/run',
-                'run-cts', 
-                '--verbose',
-                f'--bin={args.dawn_path}/out/Debug',
-                f'--cts={args.cts_path}',
-                query]
-        
-            print(f'Run {i} query: {query}')
-            result: ProcessResult = run_process_with_timeout(
-                    cmd=cmd, timeout_seconds=None)
-
-            # Kill gpu processes - this is not always done automatically
-            # when running tests individually, which messes up
-            # future tests
-            if 'Linux' in platform.platform():
-                kill_gpu_processes('node')
-
-            try:
-                # Record stdout and outcomes
-                with open(output_file, 'a') as f:
-                    f.write(result.stderr.decode('utf-8'))
-                    f.write(result.stdout.decode('utf-8'))
-
-                output = result.stdout.decode('utf-8').split('\n')
-
-                query_status = get_single_tests_from_stdout(output)
-
-                with open(summary_file, 'a') as f:
-                    for (query,status) in query_status.items():
-                        f.write(f'{query} - {status}\n')      
-            except:
-                print('Problem extracting stdout information!')
-                
-                try:
-                    with open(manual_check_file, 'a') as f:
-                        f.write(f'Problem extracting stdout information for query: {query}\n')
-                
-                except:
-                    print('Problem writing to manual check file!')
+            if output_file.exists():
+                os.remove(output_file)
             
+            if summary_file.exists():
+                os.remove(summary_file)
+
+            for query in individual_cts_queries:        
+                cmd = [f'{args.dawn_path}/tools/run',
+                    'run-cts', 
+                    '--verbose',
+                    f'--bin={args.dawn_path}/out/Debug',
+                    f'--cts={args.cts_path}',
+                    query]
+            
+                print(f'Run {i} query: {query}')
+                result: ProcessResult = run_process_with_timeout(
+                        cmd=cmd, timeout_seconds=None)
+
+                # Kill gpu processes - this is not always done automatically
+                # when running tests individually, which messes up
+                # future tests
+                if 'Linux' in platform.platform():
+                    kill_gpu_processes('node')
+
+                try:
+                    # Record stdout and outcomes
+                    with open(output_file, 'a') as f:
+                        f.write(result.stderr.decode('utf-8'))
+                        f.write(result.stdout.decode('utf-8'))
+
+                    output = result.stdout.decode('utf-8').split('\n')
+
+                    query_status = get_single_tests_from_stdout(output)
+
+                    with open(summary_file, 'a') as f:
+                        for (query,status) in query_status.items():
+                            f.write(f'{query} - {status}\n')      
+                except:
+                    print('Problem extracting stdout information!')
+                    
+                    try:
+                        with open(manual_check_file, 'a') as f:
+                            f.write(f'Test run: {i} - Problem extracting stdout information for query: {query}\n')
+                    
+                    except:
+                        print('Problem writing to manual check file!')
+
+    print('Collecting reliable tests...')
+
+    for i in range(0, args.n_runs):
+        
+        output_file = Path(args.output_path, f'test_stdout_{i}.txt')
+
         # Parse stdout to get a list of individual tests and their statuses
         single_tests.append(get_single_tests_from_file(output_file))   
 
@@ -177,17 +188,19 @@ def main():
         results.append(set([query for (query, status) in single_tests[i].items() if status == 'pass']))
 
     # Find the tests that pass on all three runs
-    reliable_tests = results[0]
+    reliable_tests = list(set.intersection(*results))
 
-    for i in range (1, args.n_runs):
-        print(f'{len(results[i])} tests pass in run {i}')
-        reliable_tests &= results[i]
-
-    # Check
-    print('Tests:')
     for test in reliable_tests:
         for i in range(args.n_runs):
             assert single_tests[i][test] == 'pass'
+
+    # Write out all reliable tests to a file so they can be accessed
+    with open(reliable_tests_file, 'w') as f:
+        json.dump(reliable_tests, f, indent=4)
+
+    # Check
+    for i in range (0, args.n_runs):
+        print(f'{len(results[i])} tests pass in run {i}')
 
     print(f'Found {len(reliable_tests)} reliable tests out of a possible {len(single_tests[0])}')
 
