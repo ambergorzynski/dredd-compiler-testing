@@ -9,6 +9,8 @@ MUTATION_INFO_FILE="${MUTATED_PATH}/dawn_mutated.json"
 MUTATION_INFO_FILE_FOR_MUTANT_COVERAGE_TRACKING="${TRACKING_PATH}/dawn_tracking.json"
 MUTANT_KILL_PATH="/data/work/tint_mutation_testing/spirv_ast_printer_individual_cts"
 
+QUERY_FILE="${BASE}/dredd-compiler-testing/output/reliable_tests.json"
+
 export PYTHONPATH=${BASE}/dredd-compiler-testing
 
 python3 ${BASE}/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/webgpu_cts_test.py \
@@ -17,6 +19,8 @@ python3 ${BASE}/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/webgp
     $MUTATION_INFO_FILE \
     $MUTATION_INFO_FILE_FOR_MUTANT_COVERAGE_TRACKING \
     $MUTANT_KILL_PATH \
+    file \
+    --query_file=$QUERY_FILE \
     --run_timeout 600 \
     --compile_timeout 600 \
-    --cts_only
+

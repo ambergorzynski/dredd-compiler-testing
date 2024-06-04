@@ -53,6 +53,15 @@ def main():
     parser.add_argument("mutant_kill_path",
                         help="Directory in which to record mutant kill info and mutant killing tests.",
                         type=Path)
+    parser.add_argument("query_source",
+                        choices = ['file','cts_repo'],
+                        help="Source for CTS queries. Can be 'file' or 'cts_repo'")
+    parser.add_argument("--query_file",
+                        default=None,
+                        help="CTS query file")
+    parser.add_argument("--cts_repo",
+                        default=None,
+                        help="CTS repo filepath")
     parser.add_argument("--generator_timeout",
                         default=20,
                         help="Time in seconds to allow for generation of a program.",
@@ -87,6 +96,11 @@ def main():
     args = parser.parse_args()
 
     assert args.mutation_info_file != args.mutation_info_file_for_mutant_coverage_tracking
+
+    if args.query_source == 'file':
+        assert Path(args.query_file).exists()
+    elif args.query_source == 'cts_repo':
+        assert Path(args.cts_repo).exists()
 
     print("Building the real mutation tree...")
     with open(args.mutation_info_file, 'r') as json_input:
@@ -131,36 +145,36 @@ def main():
 
         logging.info('Start')
 
-        # Get WebGPU CTS test queries as list
-        #TODO: test_queries = get_test_queries()
-        webgpu_cts_path = Path('/data/dev/webgpu_cts/src/webgpu') 
-        base_query_string = 'webgpu'
+        test_queries = []
 
-        cts_queries = get_tests(webgpu_cts_path, base_query_string)
-        '''
-        test_queries = ['webgpu:shader,execution,flow_control,loop:*']
-        test_queries = ['webgpu:api,operation,buffers,map_oom:*']
+        if args.query_source == "cts_repo":
 
-        # Shader queries only
-        test_queries = [t for t in test_queries if 'webgpu:shader,validation,expression,call,builtin,asinh' in t]
-        
-        cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:*'] 
-        ''' 
-        # Get WebGPU unit test queries as list
-        unittests_path = Path('/data/dev/webgpu_cts/src/unittests')
-        unittest_query_string = 'unittests'
+            # Get WebGPU CTS test queries as list
+            webgpu_cts_path = Path('/data/dev/webgpu_cts/src/webgpu') 
+            base_query_string = 'webgpu'
 
-        unittest_queries = get_tests(unittests_path, unittest_query_string)
+            cts_queries = get_tests(webgpu_cts_path, base_query_string)
 
-        if args.unittests_only:
-            test_queries = unittest_queries
-        elif args.cts_only:
-            test_queries = cts_queries
-        else:
-            test_queries = unittest_queries + cts_queries
+            # Get WebGPU unit test queries as list
+            unittests_path = Path('/data/dev/webgpu_cts/src/unittests')
+            unittest_query_string = 'unittests'
 
-        #test_queries = get_unrun_tests()
-        #test_queries = ['webgpu:shader,validation,expression,call,builtin,abs:*']
+            unittest_queries = get_tests(unittests_path, unittest_query_string)
+
+            if args.unittests_only:
+                test_queries = unittest_queries
+            elif args.cts_only:
+                test_queries = cts_queries
+            else:
+                test_queries = unittest_queries + cts_queries
+
+        elif args.query_source == "file":
+            
+            with open(args.query_file, 'r') as f:
+                test_queries = json.load(f)
+
+        print(f'len of test queries is {len(test_queries)}')
+        exit()
 
         # Loop over tests
         for query in test_queries:
