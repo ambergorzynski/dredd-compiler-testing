@@ -28,5 +28,4 @@ def run_process_with_timeout(cmd: List[str],
                                    timeout=timeout_seconds)
         return ProcessResult(returncode=process.returncode, stdout=process.stdout, stderr=process.stderr)
     except subprocess.TimeoutExpired:
-        print(f'Timeout is: {timeout_seconds}')
         return None
