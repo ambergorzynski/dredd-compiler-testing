@@ -1,8 +1,11 @@
 #!/bin/sh
 
-/data/dev/dawn_mutated/tools/run run-cts \
+MESA_INSTALL=/data/dev/mesa/build/install
+DAWN=/data/dev/dawn_mutated
+
+VK_ICD_FILENAMES=$MESA_INSTALL/share/vulkan/icd.d/lvp_icd.x86_64.json $DAWN/tools/run run-cts \
     --verbose \
-    --bin=/data/dev/dawn_mutated/out/Debug \
+    --bin=$DAWN/out/Debug \
     --cts=/data/dev/webgpu_cts \
     'webgpu:shader,mutate:*'
     #'webgpu:api,operation,command_buffer,copyTextureToTexture:*'
