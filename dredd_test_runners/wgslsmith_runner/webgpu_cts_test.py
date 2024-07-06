@@ -195,7 +195,7 @@ def main():
             # Run tests with unmutated Dawn to check if test passes
             #TODO: pass arguments
             env = os.environ.copy()
-            env["VK_ICD_FILENAMES"] = f'{args.vk_icd}',
+            env["VK_ICD_FILENAMES"] = f'{args.vk_icd}'
             run_unmutated_cmd = [f'{args.mutated_path}/tools/run',
                     'run-cts', 
                     '--verbose',
@@ -206,7 +206,9 @@ def main():
             print("Running with unmutated Dawn...")
             run_time_start: float = time.time()
             regular_execution_result: ProcessResult = run_process_with_timeout(
-                cmd=run_unmutated_cmd, timeout_seconds=args.run_timeout)
+                cmd=run_unmutated_cmd, 
+                timeout_seconds=args.run_timeout,
+                env=env)
             run_time_end: float = time.time()
             run_time = run_time_end - run_time_start
         
@@ -239,6 +241,7 @@ def main():
             print("Running with mutant tracking compiler...")
             tracking_environment = os.environ.copy()
             tracking_environment["DREDD_MUTANT_TRACKING_FILE"] = str(dredd_covered_mutants_path)
+            tracking_environment["VK_ICD_FILENAMES"] = f'{args.vk_icd}'
             tracking_compile_cmd = [f'{args.tracking_path}/tools/run',
                     'run-cts', 
                     '--verbose',
@@ -302,6 +305,8 @@ def main():
                 
                 print("Trying mutant " + str(mutant))
                 
+                env = os.environ.copy()
+                env["VK_ICD_FILENAMES"] = f'{args.vk_icd}'
                 mutated_cmd = [f'{args.mutated_path}/tools/run',
                     'run-cts', 
                     '--verbose',
@@ -312,7 +317,8 @@ def main():
                 (mutant_result, mutant_stdout) = run_webgpu_cts_test_with_mutants(mutants=[mutant],
                         mutated_cmd=mutated_cmd,
                         timeout_seconds=args.compile_timeout,
-                        failed_tests=failed_tests)
+                        failed_tests=failed_tests
+                        env=env)
                 
                 kill_gpu_processes('node')
 
