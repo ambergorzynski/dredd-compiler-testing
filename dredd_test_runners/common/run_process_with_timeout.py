@@ -18,6 +18,7 @@ def run_process_with_timeout(cmd: List[str],
                              env: Optional[Dict[AnyStr, AnyStr]] = None,
                              cwd: Path = None) -> Optional[ProcessResult]:
     process = None
+    print(f'env is: {env}')
     try:
         process = subprocess.run(cmd,
                                    start_new_session=True,

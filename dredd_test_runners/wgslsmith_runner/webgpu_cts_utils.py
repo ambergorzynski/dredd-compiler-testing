@@ -224,6 +224,12 @@ def getlines():
 
     return get_single_tests_from_file(path) 
 
+def check_query_stability(query : str):
+
+    get_single_tests_from_file(file)
+
+    pass_tests
+
 if __name__=="__main__":
-    #main()
-    output = getlines()
+    main()
+    #output = getlines()

@@ -30,9 +30,13 @@ def main():
     parser.add_argument("output_path",
                         help="Absolute file path to output location where results should be stored.",
                         type=Path),
-    parser.add_argument("query_file",
+    parser.add_argument("--query_file",
                         help="Absolute file path to list of individual CTS queries.",
                         type=Path)
+    parser.add_argument("--query_base",
+                        default="webgpu:*",
+                        type=str,
+                        help="Base path for queries.")
     parser.add_argument("--update_queries",
                         default=False,
                         action=argparse.BooleanOptionalAction,
@@ -45,20 +49,28 @@ def main():
                         default= False,
                         action=argparse.BooleanOptionalAction,
                         help="Parse existing stdout without re-running tests.")
+    parser.add_argument("--driver",
+                        choices=['nvidia','lavapipe'],
+                        default='nvidia',
+                        help="Select GPU driver.")
+    parser.add_argument("--mesa_install",
+                        default='')
     args = parser.parse_args()
 
+    '''
     if not args.query_file.exists() and not args.update_queries:
         print('Query file does not exist! You must update queries if your query file does not yet exist!')
         exit(1)                    
-
+    '''
    
     manual_check_file : Path = Path(args.output_path, 'manual_checks.txt')
     individual_queries_file :Path = Path(args.output_path, 'individual_queries.json')
     reliable_tests_file : Path = Path(args.output_path, 'reliable_tests.json')
     
     if args.update_queries:
-
-        cts_queries = ['webgpu:*']
+        
+        cts_queries = [args.query_base]
+        #cts_queries = ['webgpu:*']
         #cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:*']
         #cts_queries = ['webgpu:shader,execution,expression,call,builtin,textureDimensions:sampled_and_multisampled:format="r32sint";aspect="all";samples=1']
 
@@ -75,9 +87,13 @@ def main():
                 f'--cts={args.cts_path}',
                 query]
 
+            env = os.environ.copy()
+            if args.driver=='lavapipe':
+                env['VK_ICD_FILENAMES']=f'{args.mesa_install}/share/vulkan/icd.d/lvp_icd.x86_64.json' 
+           
             print(f'Get individual tests from query:\n{query}')
             result: ProcessResult = run_process_with_timeout(
-                    cmd=cmd, timeout_seconds=None)
+                    cmd=cmd, timeout_seconds=None, env=env)
     
             if args.query_file.exists():
                 os.remove(args.query_file)
@@ -117,7 +133,15 @@ def main():
         # Save individual queries
         with open(individual_queries_file, 'w') as f:
             json.dump(individual_cts_queries, f, indent=2)
-
+    
+    # If we are not updating queries, then read from input or file
+    else:
+        individual_cts_queries = [args.query_base]
+    '''
+    else:
+        with open(args.query_file, 'r') as f:
+            individual_cts_queries = json.load(f)
+    '''
     results = []
     single_tests = []
 
@@ -134,6 +158,10 @@ def main():
             if summary_file.exists():
                 os.remove(summary_file)
 
+            env = os.environ.copy()
+            if args.driver=='lavapipe':
+                env['VK_ICD_FILENAMES']=f'{args.mesa_install}/share/vulkan/icd.d/lvp_icd.x86_64.json'  
+
             for query in individual_cts_queries:        
                 cmd = [f'{args.dawn_path}/tools/run',
                     'run-cts', 
@@ -144,7 +172,7 @@ def main():
             
                 print(f'Run {i} query: {query}')
                 result: ProcessResult = run_process_with_timeout(
-                        cmd=cmd, timeout_seconds=None)
+                        cmd=cmd, timeout_seconds=None, env=env)
 
                 # Kill gpu processes - this is not always done automatically
                 # when running tests individually, which messes up
