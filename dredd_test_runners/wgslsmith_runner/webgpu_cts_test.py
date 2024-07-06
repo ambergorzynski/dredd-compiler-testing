@@ -93,6 +93,10 @@ def main():
     parser.add_argument("--cts_only",
                         action=argparse.BooleanOptionalAction,
                         help="Run CTS tests only. Default is false.")
+    parser.add_argument("--vk_icd",
+                        default='',
+                        type=str,
+                        help="Value to set VK_ICD_FILENAMES environment variable, which specifies a particular GPU driver.")
     args = parser.parse_args()
 
     assert args.mutation_info_file != args.mutation_info_file_for_mutant_coverage_tracking
@@ -188,9 +192,10 @@ def main():
             logger.info(f'test_type: {test_name}')
             logger.info(f'test_id: {test_id}')
             
-            
             # Run tests with unmutated Dawn to check if test passes
             #TODO: pass arguments
+            env = os.environ.copy()
+            env["VK_ICD_FILENAMES"] = f'{args.vk_icd}',
             run_unmutated_cmd = [f'{args.mutated_path}/tools/run',
                     'run-cts', 
                     '--verbose',
