@@ -15,7 +15,7 @@ from dredd_test_runners.common.hash_file import hash_file
 from dredd_test_runners.common.mutation_tree import MutationTree
 from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
 from dredd_test_runners.common.run_test_with_mutants import run_webgpu_cts_test_with_mutants, KillStatus, CTSKillStatus
-from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import kill_gpu_processes, get_tests, get_passes, get_failures, get_unrun_tests
+from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import kill_gpu_processes, get_tests, get_passes, get_failures, get_unrun_tests, get_single_tests_from_stdout
 
 from pathlib import Path
 from typing import List, Set
@@ -177,7 +177,7 @@ def main():
             with open(args.query_file, 'r') as f:
                 test_queries = json.load(f)
 
-        # Loop over tests
+        # Loop over tests to determine which mutants are killed by the tests
         for query in test_queries:
 
             test_id = hash(query)
@@ -192,8 +192,7 @@ def main():
             logger.info(f'test_type: {test_name}')
             logger.info(f'test_id: {test_id}')
             
-            # Run tests with unmutated Dawn to check if test passes
-            #TODO: pass arguments
+            # Run tests with unmutated Dawn to find the list of tests that pass
             env = os.environ.copy()
             env["VK_ICD_FILENAMES"] = f'{args.vk_icd}'
             run_unmutated_cmd = [f'{args.mutated_path}/tools/run',
@@ -218,27 +217,20 @@ def main():
                 continue
 
             # Parse stdout to find which tests ran and what their outcome was
-            out = regular_execution_result.stdout.decode('utf-8')
+            out : list[str] = regular_execution_result.stdout.decode('utf-8').split('\n')
 
-
-        
-            if 'FAIL:' in out:
-                print(f"Std out:\n {regular_execution_result.stdout.decode('utf-8')}\n")
-                print(f"Std err:\n {regular_execution_result.stderr.decode('utf-8')}\n")
-                print("Execution of generated program failed without mutants.")
-                print(f'The result included {get_failures(out)} failed tests.')
-                logger.info(f'Execution of generated program failed without mutants: {get_failures(out)} failed tests')
-                failed_tests = get_failures(out)
-            
-            else:
-                failed_tests = 0
-                print("Execution of generated program succeeded without mutants.")
-                logger.info('Execution of generated program succeeded without mutants')
+            unmutated_results : dict[str,str] = get_single_tests_from_stdout(out)
 
             print(f"Std out:\n {regular_execution_result.stdout.decode('utf-8')}\n")
             print(f"Std err:\n {regular_execution_result.stderr.decode('utf-8')}\n")
+
+            # If all tests in the query fail with the unmutated dawn, then move on to next query
+            if 'pass' not in unmutated_results.values():
+                print('No tests pass with unmutated Dawn; skipping query')
+                logger.info('No tests pass with unmutated Dawn; skipping query')
+                continue
             
-            # Compile the program with the mutant tracking compiler.
+            # Run the test with mutant tracking enabled
             print("Running with mutant tracking compiler...")
             tracking_environment = os.environ.copy()
             tracking_environment["DREDD_MUTANT_TRACKING_FILE"] = str(dredd_covered_mutants_path)
@@ -247,15 +239,18 @@ def main():
                     'run-cts', 
                     '--verbose',
                     f'--bin={args.tracking_path}/out/Debug',
-                    '--cts=/data/dev/webgpu_cts',
+                    f'--cts={args.cts_repo}',
                     query]            
-            mutant_tracking_result : ProcessResult = run_process_with_timeout(cmd=tracking_compile_cmd, timeout_seconds=args.compile_timeout, env=tracking_environment) 
-            #mutant_tracking_result = subprocess.run(tracking_compile_cmd, env=tracking_environment)
+            
+            mutant_tracking_result : ProcessResult = run_process_with_timeout(cmd=tracking_compile_cmd, 
+                                                                              timeout_seconds=args.compile_timeout, 
+                                                                              env=tracking_environment) 
             
             if mutant_tracking_result is None:
                 print("Mutant tracking compilation timed out.")
                 logger.info('Mutant tracking compilation timed out')
                 continue
+            
             elif not dredd_covered_mutants_path.exists():
                 print(f"Std out:\n {mutant_tracking_result.stdout.decode('utf-8')}\n")
                 print(f"Std err:\n {mutant_tracking_result.stderr.decode('utf-8')}\n")
@@ -264,6 +259,7 @@ def main():
                 with open(Path(args.mutant_kill_path,f'tracking/no_tracking_file_{test_name}_{test_id}.txt'), 'w') as f:
                     f.write(query)
                 continue
+            
             else:
                 print("Mutant tracking compilation complete")
                 with open(dredd_covered_mutants_path, 'r') as f:
@@ -275,7 +271,7 @@ def main():
             print(f"Std out:\n {mutant_tracking_result.stdout.decode('utf-8')}\n")
             print(f"Std err:\n {mutant_tracking_result.stderr.decode('utf-8')}\n")
             
-            # Load file contents into a list. We go from list to set to list to eliminate duplicates.
+            # Load covered mutants into a list. We go from list to set to list to eliminate duplicates.
             covered_by_this_test: List[int] = list(set([int(line.strip()) for line in
                                                         open(dredd_covered_mutants_path, 'r').readlines()]))
             covered_by_this_test.sort()
@@ -285,14 +281,11 @@ def main():
             already_killed_by_other_tests: List[int] = ([m for m in covered_by_this_test if m in killed_mutants])
             killed_by_this_test: List[int] = []
             covered_but_not_killed_by_this_test: List[int] = []
-
-            # TESTING HERE
-            print(f'Mutation tree: {mutation_tree.num_mutations}')
-            print(f'Mutation tracking tree: {mutation_tree_for_coverage_tracking.num_mutations}')
-            print(f'Covered: {covered_by_this_test}')
-            #continue
                        
             logger.info(f'Number of mutants to try: {str(len(candidate_mutants_for_this_test))}')
+
+            # Enable mutants one at a time
+            # Check whether any tests within the current query that previously passed now fail
             for mutant in candidate_mutants_for_this_test:
 
                 mutant_path = Path(args.mutant_kill_path,f'killed_mutants/{str(mutant)}')
@@ -318,7 +311,7 @@ def main():
                 (mutant_result, mutant_stdout) = run_webgpu_cts_test_with_mutants(mutants=[mutant],
                         mutated_cmd=mutated_cmd,
                         timeout_seconds=args.compile_timeout,
-                        failed_tests=failed_tests,
+                        unmutated_results = unmutated_results,
                         env=env)
                 
                 kill_gpu_processes('node')
