@@ -154,13 +154,13 @@ def main():
         if args.query_source == "cts_repo":
 
             # Get WebGPU CTS test queries as list
-            webgpu_cts_path = Path('/data/dev/webgpu_cts/src/webgpu') 
+            webgpu_cts_path = Path(args.cts_repo) 
             base_query_string = 'webgpu'
 
             cts_queries = get_tests(webgpu_cts_path, base_query_string)
 
             # Get WebGPU unit test queries as list
-            unittests_path = Path('/data/dev/webgpu_cts/src/unittests')
+            unittests_path = Path({args.cts_repo},'/src/unittests')
             unittest_query_string = 'unittests'
 
             unittest_queries = get_tests(unittests_path, unittest_query_string)
@@ -200,7 +200,7 @@ def main():
                     'run-cts', 
                     '--verbose',
                     f'--bin={args.mutated_path}/out/Debug',
-                    '--cts=/data/dev/webgpu_cts',
+                    '--cts={args.cts_repo}',
                     query]
             
             print("Running with unmutated Dawn...")
@@ -217,9 +217,10 @@ def main():
                 logger.info('Runtime timeout')
                 continue
 
-            # Stdout contains 'FAIL:' if at least one test fails, else it does not
-            # contain this string
+            # Parse stdout to find which tests ran and what their outcome was
             out = regular_execution_result.stdout.decode('utf-8')
+
+
         
             if 'FAIL:' in out:
                 print(f"Std out:\n {regular_execution_result.stdout.decode('utf-8')}\n")
@@ -317,7 +318,7 @@ def main():
                 (mutant_result, mutant_stdout) = run_webgpu_cts_test_with_mutants(mutants=[mutant],
                         mutated_cmd=mutated_cmd,
                         timeout_seconds=args.compile_timeout,
-                        failed_tests=failed_tests
+                        failed_tests=failed_tests,
                         env=env)
                 
                 kill_gpu_processes('node')
