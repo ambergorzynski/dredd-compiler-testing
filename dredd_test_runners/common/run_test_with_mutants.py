@@ -9,7 +9,7 @@ from dredd_test_runners.common.constants import (MIN_TIMEOUT_FOR_MUTANT_COMPILAT
                                                  TIMEOUT_MULTIPLIER_FOR_MUTANT_EXECUTION)
 from dredd_test_runners.common.hash_file import hash_file
 from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
-from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import get_failures
+from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import get_failures, get_single_tests_from_stdout
 
 class CTSKillStatus(Enum):
     SURVIVED = 1
@@ -128,7 +128,7 @@ def run_wgslsmith_test_with_mutants(mutants: List[int],
 def run_webgpu_cts_test_with_mutants(mutants: List[int],
                           mutated_cmd : str,
                           timeout_seconds : int,
-                          failed_tests : int) -> tuple[CTSKillStatus, ProcessResult]:
+                          unmutated_results : dict[str, str]) -> tuple[CTSKillStatus, ProcessResult]:
     print(f'Timeout is {timeout_seconds}')
 
     mutated_environment = os.environ.copy()
@@ -142,19 +142,16 @@ def run_webgpu_cts_test_with_mutants(mutants: List[int],
     if mutated_result is None:
         return (CTSKillStatus.TEST_TIMEOUT, mutated_result)
     
-    # Mutated stdout contains 'FAIL:' if at least one test failed
-    # otherwise it does not contain this string
-    if failed_tests == 0 and 'FAIL:' in mutated_result.stdout.decode('utf-8'):
+    # Check test results against unmutated test results
+    # If any previously passing test fails, then the mutant is killed
+    mutated_results = get_single_tests_from_stdout(mutated_result.stdout.decode('utf-8').split('\n'))
+    
+    mutated_fail = set([test for (test,status) in mutated_results if status=='fail'])
 
-        return (CTSKillStatus.KILL_TEST_FAIL, mutated_result)
+    unmutated_pass = set([test for (test,status) in unmutated_results if status=='pass'])
 
-    # if some tests already failed on unmutated dawn, must check
-    # whether additional tests failed when the mutation is enabled
-    if failed_tests != 0 and 'FAIL:' in mutated_result.stdout.decode('utf-8'):
-        mutated_failures = get_failures(mutated_result.stdout.decode('utf-8'))
-        
-        if mutated_failures > failed_tests:
-            return (CTSKillStatus.KILL_TEST_FAIL, mutated_result)
+    if len(unmutated_pass.union(mutated_fail)) != 0:
+        return CTSKillStatus.KILL_TEST_FAIL
 
     return (CTSKillStatus.SURVIVED, mutated_result)
 
