@@ -128,10 +128,10 @@ def run_wgslsmith_test_with_mutants(mutants: List[int],
 def run_webgpu_cts_test_with_mutants(mutants: List[int],
                           mutated_cmd : str,
                           timeout_seconds : int,
-                          unmutated_results : dict[str, str]) -> tuple[CTSKillStatus, ProcessResult]:
-    print(f'Timeout is {timeout_seconds}')
+                          unmutated_results : dict[str, str],
+                          env = None) -> tuple[CTSKillStatus, ]:
 
-    mutated_environment = os.environ.copy()
+    mutated_environment = env
     mutated_environment["DREDD_ENABLED_MUTATION"] = ','.join([str(m) for m in mutants])
     
     mutated_result: ProcessResult = run_process_with_timeout(
@@ -140,20 +140,20 @@ def run_webgpu_cts_test_with_mutants(mutants: List[int],
             timeout_seconds=timeout_seconds)
 
     if mutated_result is None:
-        return (CTSKillStatus.TEST_TIMEOUT, mutated_result)
+        return (CTSKillStatus.TEST_TIMEOUT, [])
     
     # Check test results against unmutated test results
     # If any previously passing test fails, then the mutant is killed
     mutated_results = get_single_tests_from_stdout(mutated_result.stdout.decode('utf-8').split('\n'))
-    
-    mutated_fail = set([test for (test,status) in mutated_results if status=='fail'])
 
-    unmutated_pass = set([test for (test,status) in unmutated_results if status=='pass'])
+    mutated_fail = set([test for (test,status) in mutated_results.items() if status=='fail'])
 
-    if len(unmutated_pass.union(mutated_fail)) != 0:
-        return CTSKillStatus.KILL_TEST_FAIL
+    unmutated_pass = set([test for (test,status) in unmutated_results.items() if status=='pass'])
 
-    return (CTSKillStatus.SURVIVED, mutated_result)
+    if len(unmutated_pass.intersection(mutated_fail)) != 0:
+        return (CTSKillStatus.KILL_TEST_FAIL, unmutated_pass.intersection(mutated_fail))
+
+    return (CTSKillStatus.SURVIVED, [])
 
 def get_wgslsmith_output(stdout) -> list[int]:
     
