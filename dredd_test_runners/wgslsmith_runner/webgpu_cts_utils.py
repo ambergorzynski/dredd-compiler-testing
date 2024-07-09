@@ -130,15 +130,24 @@ def get_tests(path : Path, base : str) -> list[str]:
         directories)
     '''
 
+    print(f'base is {base}')
+    # Get the desired base directory
+    if base == "webgpu:*" or base == "unittests:*":
+        base_directory = path
+        print(f'base directory is {base_directory}')
+    else:
+        folders = base.replace(':','/').replace('*','').replace(',','/')
+        base_directory = Path(path,folders)
+
     # Get all test filenames in current directory
-    filenames = [f.name for f in path.iterdir() if f.is_file()
+    filenames = [f.name for f in base_directory.iterdir() if f.is_file()
             and f.suffixes == ['.spec','.ts']]
 
     # Convert filenames to queries
     queries = [file_query(base, f) for f in filenames]
 
     # Loop over subdirectories and get tests
-    subdirectories = [d for d in path.iterdir() if d.is_dir()]
+    subdirectories = [d for d in base_directory.iterdir() if d.is_dir()]
 
     for sub in subdirectories:
         query_base = dir_query(base, sub.name)
@@ -147,13 +156,13 @@ def get_tests(path : Path, base : str) -> list[str]:
     return queries
 
 def dir_query(base : str, directory :str) -> str:
-    if base == 'webgpu' or base == 'unittests':
-        return base + ':' + directory
+    if base == 'webgpu:*' or base == 'unittests:*':
+        return base.replace('*','') + directory
     return base + ',' + directory
 
-def file_query(base : str, filename : str) -> str:
-    separator = ':' if base == 'webgpu' or base == 'unittests' else ','
-    return base + separator + filename.removesuffix('.spec.ts') + ':*'
+def file_query(base : str, filename : str) -> str:  
+    file_base = base.replace('*','')      
+    return file_base + filename.removesuffix('.spec.ts') + ':*'
 
 def test():
     run_test('webgpu:examples:gpu,buffers:*')
