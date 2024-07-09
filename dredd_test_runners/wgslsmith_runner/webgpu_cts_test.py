@@ -106,6 +106,8 @@ def main():
     elif args.query_source == 'cts_repo':
         assert Path(args.cts_repo).exists()
 
+    cts_base = Path(args.cts_repo,'src')
+
     print("Building the real mutation tree...")
     with open(args.mutation_info_file, 'r') as json_input:
         mutation_tree = MutationTree(json.load(json_input))
@@ -154,16 +156,17 @@ def main():
         if args.query_source == "cts_repo":
 
             # Get WebGPU CTS test queries as list
-            webgpu_cts_path = Path(args.cts_repo) 
-            base_query_string = 'webgpu'
+            base_query_string = 'webgpu:shader,execution,flow_control,*'
 
-            cts_queries = get_tests(webgpu_cts_path, base_query_string)
+            cts_queries = get_tests(cts_base, base_query_string)
+
+            print(cts_queries)
 
             # Get WebGPU unit test queries as list
-            unittests_path = Path({args.cts_repo},'/src/unittests')
-            unittest_query_string = 'unittests'
+            unittests_path = Path(cts_base,'unittests')
+            unittest_query_string = 'unittests:*'
 
-            unittest_queries = get_tests(unittests_path, unittest_query_string)
+            #unittest_queries = get_tests(cts_base, unittest_query_string)
 
             if args.unittests_only:
                 test_queries = unittest_queries
@@ -199,7 +202,7 @@ def main():
                     'run-cts', 
                     '--verbose',
                     f'--bin={args.mutated_path}/out/Debug',
-                    '--cts={args.cts_repo}',
+                    f'--cts={args.cts_repo}',
                     query]
             
             print("Running with unmutated Dawn...")
@@ -229,7 +232,7 @@ def main():
                 print('No tests pass with unmutated Dawn; skipping query')
                 logger.info('No tests pass with unmutated Dawn; skipping query')
                 continue
-            
+
             # Run the test with mutant tracking enabled
             print("Running with mutant tracking compiler...")
             tracking_environment = os.environ.copy()
@@ -308,7 +311,7 @@ def main():
                     '--cts=/data/dev/webgpu_cts',
                     query]    
 
-                (mutant_result, mutant_stdout) = run_webgpu_cts_test_with_mutants(mutants=[mutant],
+                (mutant_result, failing_tests) = run_webgpu_cts_test_with_mutants(mutants=[mutant],
                         mutated_cmd=mutated_cmd,
                         timeout_seconds=args.compile_timeout,
                         unmutated_results = unmutated_results,
@@ -325,13 +328,13 @@ def main():
                 unkilled_mutants.remove(mutant)
                 killed_mutants.add(mutant)
                 killed_by_this_test.append(mutant)
-                time_of_last_kill = time.time()
                 print(f"Kill! Mutants killed so far: {len(killed_mutants)}")
                 try:
                     mutant_path.mkdir()
                     print("Writing kill info to file.")
                     with open(mutant_path / "kill_info.json", "w") as outfile:
-                        json.dump({"killing_test": query,
+                        json.dump({"killing_query": query,
+                                   "killing_tests" : list(failing_tests),
                                    "kill_type": str(mutant_result)}, outfile)
                 except FileExistsError:
                     print(f"Mutant {mutant} was independently discovered to be killed.")
