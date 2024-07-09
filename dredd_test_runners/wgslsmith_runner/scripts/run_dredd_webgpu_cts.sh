@@ -24,6 +24,7 @@ python3 ${BASE}/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/webgp
     'cts_repo' \
     --query_file=$QUERY_FILE \
     --cts_repo=$CTS_PATH \
+    --query='webgpu:shader,execution,flow_control,*' \
     --cts_only \
     --run_timeout 600 \
     --compile_timeout 600 \

@@ -62,6 +62,10 @@ def main():
     parser.add_argument("--cts_repo",
                         default=None,
                         help="CTS repo filepath")
+    parser.add_argument("--query",
+                        default='webgpu:*',
+                        type=str,
+                        help="Base query string to use when retrieving tests from the CTS")
     parser.add_argument("--generator_timeout",
                         default=20,
                         help="Time in seconds to allow for generation of a program.",
@@ -156,7 +160,7 @@ def main():
         if args.query_source == "cts_repo":
 
             # Get WebGPU CTS test queries as list
-            base_query_string = 'webgpu:shader,execution,flow_control,*'
+            base_query_string = args.query
 
             cts_queries = get_tests(cts_base, base_query_string)
 
