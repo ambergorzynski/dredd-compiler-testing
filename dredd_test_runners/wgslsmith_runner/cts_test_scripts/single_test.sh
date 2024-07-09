@@ -4,7 +4,8 @@
     --verbose \
     --bin=/data/dev/dawn_mutated/out/Debug \
     --cts=/data/dev/webgpu_cts \
-    'webgpu:shader,mutate:*'
+    'unittests:*'
+    #'webgpu:shader,*'
     #'webgpu:api,operation,command_buffer,copyTextureToTexture:*'
     #'webgpu:api,operation,buffers,map_oom:*'
     #'webgpu:examples:gpu,buffers:*'
