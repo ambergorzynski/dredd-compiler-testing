@@ -123,46 +123,53 @@ def run_test(query : str) -> None:
 
     print('Finish')
 
-def get_tests(path : Path, base : str) -> list[str]:
-    ''' 
+def get_tests(src : Path, query : str) -> list[str]:
+    '''
         Function returns a list of query strings for
         all tests in the directory (including sub-
         directories)
+
+        src is the path to the WebGPU CTS e.g. /data/dev/webgpu_cts/src
+        query is the query for which we want to find all individual tests
+            e.g. 'webgpu:*', 'webgpu:shader,*', 'unittests:*'
     '''
 
-    print(f'base is {base}')
-    # Get the desired base directory
-    if base == "webgpu:*" or base == "unittests:*":
-        base_directory = path
-        print(f'base directory is {base_directory}')
-    else:
-        folders = base.replace(':','/').replace('*','').replace(',','/')
-        base_directory = Path(path,folders)
+    # Get base directory for query
+    # If the query ends with :* then the final item is a file, return immediately
+    #   except for top-level queries webgpu:* and unittests:*
+    # If the query ends with ,* then the final item is a folder, continue searching
+    if query != 'webgpu:*' and query != 'unittests:*' and query[-2:] == ':*':
+        return [query]
+
+    folders_string = query.replace('*','').replace(':','/').replace(',','/')
+    
+    base_dir = Path(src, folders_string)
+    
 
     # Get all test filenames in current directory
-    filenames = [f.name for f in base_directory.iterdir() if f.is_file()
+    filenames = [f.name for f in base_dir.iterdir() if f.is_file()
             and f.suffixes == ['.spec','.ts']]
+    
 
     # Convert filenames to queries
-    queries = [file_query(base, f) for f in filenames]
+    queries = [file_query(query, f) for f in filenames]
 
-    # Loop over subdirectories and get tests
-    subdirectories = [d for d in base_directory.iterdir() if d.is_dir()]
+
+    subdirectories = [d for d in base_dir.iterdir() if d.is_dir()]
 
     for sub in subdirectories:
-        query_base = dir_query(base, sub.name)
-        queries.extend(get_tests(sub, query_base))
-
+        sub_query = dir_query(query, sub)
+        queries.extend(get_tests(src, sub_query))
+    
     return queries
 
-def dir_query(base : str, directory :str) -> str:
-    if base == 'webgpu:*' or base == 'unittests:*':
-        return base.replace('*','') + directory
-    return base + ',' + directory
+def dir_query(base : str, directory : Path) -> str:
+    directory = str(directory).split('/')[-1]
+    return base.replace('*','') + directory + ',*'
 
-def file_query(base : str, filename : str) -> str:  
-    file_base = base.replace('*','')      
-    return file_base + filename.removesuffix('.spec.ts') + ':*'
+
+def file_query(base_query : str, filename : str) -> str:     
+    return base_query.replace('*','') + filename.removesuffix('.spec.ts') + ':*'
 
 def test():
     run_test('webgpu:examples:gpu,buffers:*')
@@ -180,52 +187,16 @@ def get_passes(stdout : str) -> int:
     return int(matched.group())
 
 def main():
-    webgpu_cts_path = Path('/data/dev/webgpu_cts/src/webgpu')
-    cts_base_query_string = 'webgpu'
+    base = Path('/data/dev/webgpu_cts/src')
+    queries = ['webgpu:*',
+            'webgpu:shader,*',
+            'webgpu:shader,execution,flow_control,complex:*',
+            'unittests:*']
 
-    cts_tests = get_tests(webgpu_cts_path, cts_base_query_string)
-    
-    print(f'CTS tests are:')
-
-    for t in cts_tests:
-        print(t)
-
-    #run_test(cts_tests[0])
-
-    unittest_path = Path('/data/dev/webgpu_cts/src/unittests')
-    unit_base_query_string = 'unittests'
-
-    unit_tests = get_tests(unittest_path, unit_base_query_string)
-    
-    print(f'Unit tests are:')
-
-    for t in unit_tests:
-        print(t)
-
-    #run_test(unit_tests[0])
-
-    print(f'\nThere are {len(cts_tests)} CTS tests and {len(unit_tests)} unit tests')
-
-    with open('/data/dev/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/cts_test_scripts/out.txt', 'r') as f:
-        stdout = f.read()
-
-    regex = get_failures('3 FAIL: 33 4')
-    
-    stdout_regex = get_failures(stdout)
-    
-    print(stdout_regex)
-
-    '''
-    tests_that_ran = get_test_info(Path('/data/work/tint_mutation_testing/spirv_ast_printer_cts/tracking'))
-
-    print(tests_that_ran)
-
-    tests_that_did_not_run =[t for t in cts_tests if t not in tests_that_ran]
-
-    print(tests_that_did_not_run)
-
-    print(f'\nOut of {len(cts_tests)}, {len(tests_that_ran)} tests ran and {len(tests_that_did_not_run)} did not run')
-    '''
+    for q in queries:
+        tests = get_tests_new(base,q)
+        print(f'Query: {q}')
+        print(f'Tests: {tests}')
 
 def getlines():
     
