@@ -9,6 +9,8 @@ MUTATION_INFO_FILE="${MUTATED_PATH}/dawn_mutated.json"
 MUTATION_INFO_FILE_FOR_MUTANT_COVERAGE_TRACKING="${TRACKING_PATH}/dawn_tracking.json"
 MUTANT_KILL_PATH="/data/work/tint_mutation_testing/output/spirv_ast_printer"
 CTS_PATH="/data/dev/webgpu_cts"
+RELIABLE_TESTS="/data/work/tint_mutation_testing/lavapipe_driver_reliable_tests/reliable_tests.json"
+
 
 #QUERY_FILE="${BASE}/dredd-compiler-testing/output/reliable_tests.json"
 #QUERY_FILE="${BASE}/dredd-compiler-testing/output/test.json"
@@ -24,7 +26,8 @@ python3 ${BASE}/dredd-compiler-testing/dredd_test_runners/wgslsmith_runner/webgp
     'cts_repo' \
     --query_file=$QUERY_FILE \
     --cts_repo=$CTS_PATH \
-    --query='webgpu:shader,execution,flow_control,*' \
+    --reliable_tests=$RELIABLE_TESTS \
+    --query='webgpu:*' \
     --cts_only \
     --run_timeout 600 \
     --compile_timeout 600 \
