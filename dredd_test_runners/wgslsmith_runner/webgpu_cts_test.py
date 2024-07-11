@@ -101,6 +101,10 @@ def main():
                         default='',
                         type=str,
                         help="Value to set VK_ICD_FILENAMES environment variable, which specifies a particular GPU driver.")
+    parser.add_argument("--reliable_tests",
+                        default=None,
+                        type=str,
+                        help="File path for json containing reliably passing CTS tests")
     args = parser.parse_args()
 
     assert args.mutation_info_file != args.mutation_info_file_for_mutant_coverage_tracking
@@ -178,6 +182,14 @@ def main():
                 test_queries = cts_queries
             else:
                 test_queries = unittest_queries + cts_queries
+
+            # Identify reliable tests within the queries
+            # These are individual level tests that consistently pass for
+            # unmutated Dawn. Record these individual queries to use for results
+            # checking tests that fail when a mutation is enabled.
+            if args.reliable_tests:
+                with open(args.reliable_tests,'r') as f:
+                    reliably_passing_tests : list = json.load(f)
 
         elif args.query_source == "file":
             
@@ -319,6 +331,7 @@ def main():
                         mutated_cmd=mutated_cmd,
                         timeout_seconds=args.compile_timeout,
                         unmutated_results = unmutated_results,
+                        reliable_tests = reliably_passing_tests,
                         env=env)
                 
                 kill_gpu_processes('node')
