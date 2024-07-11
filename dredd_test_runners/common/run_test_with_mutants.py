@@ -129,7 +129,8 @@ def run_webgpu_cts_test_with_mutants(mutants: List[int],
                           mutated_cmd : str,
                           timeout_seconds : int,
                           unmutated_results : dict[str, str],
-                          env = None) -> tuple[CTSKillStatus, ]:
+                          reliable_tests : list[str],
+                          env = None) -> tuple[CTSKillStatus, list]:
 
     mutated_environment = env
     mutated_environment["DREDD_ENABLED_MUTATION"] = ','.join([str(m) for m in mutants])
@@ -150,8 +151,10 @@ def run_webgpu_cts_test_with_mutants(mutants: List[int],
 
     unmutated_pass = set([test for (test,status) in unmutated_results.items() if status=='pass'])
 
-    if len(unmutated_pass.intersection(mutated_fail)) != 0:
-        return (CTSKillStatus.KILL_TEST_FAIL, unmutated_pass.intersection(mutated_fail))
+    unmutated_reliable_pass = unmutated_pass.intersection(set(reliable_tests))
+
+    if len(unmutated_reliable_pass.intersection(mutated_fail)) != 0:
+        return (CTSKillStatus.KILL_TEST_FAIL, unmutated_reliable_pass.intersection(mutated_fail))
 
     return (CTSKillStatus.SURVIVED, [])
 
