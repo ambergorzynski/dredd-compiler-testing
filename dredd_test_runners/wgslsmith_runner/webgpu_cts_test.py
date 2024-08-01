@@ -15,7 +15,7 @@ from dredd_test_runners.common.hash_file import hash_file
 from dredd_test_runners.common.mutation_tree import MutationTree
 from dredd_test_runners.common.run_process_with_timeout import ProcessResult, run_process_with_timeout
 from dredd_test_runners.common.run_test_with_mutants import run_webgpu_cts_test_with_mutants, KillStatus, CTSKillStatus
-from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import kill_gpu_processes, get_tests, get_passes, get_failures, get_unrun_tests, get_single_tests_from_stdout
+from dredd_test_runners.wgslsmith_runner.webgpu_cts_utils import kill_gpu_processes, get_tests, get_passes, get_failures, get_unrun_tests, get_single_tests_from_stdout, get_completed_queries
 
 from pathlib import Path
 from typing import List, Set
@@ -196,8 +196,19 @@ def main():
             with open(args.query_file, 'r') as f:
                 test_queries = json.load(f)
 
+        #TODO: turn into argument
+        existing_log = Path('/data/work/tint_mutation_testing/output/spirv_ast_printer/info.log')
+        completed_queries = get_completed_queries(existing_log)
+
+        print(f'{len(completed_queries)} queries have been completed already')
+
         # Loop over tests to determine which mutants are killed by the tests
         for query in test_queries:
+
+            # Check if query has already been run
+            if query in completed_queries:
+                print(f"Query '{query}' already completed")
+                continue
 
             test_id = hash(query)
 
