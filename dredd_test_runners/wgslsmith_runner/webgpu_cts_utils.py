@@ -8,6 +8,16 @@ class TestStatus(Enum):
     FAIL = 2
     SKIP = 3
 
+def get_completed_queries(log : Path) -> list[str]:
+    
+    with open(log, 'r') as f:
+        log_info = f.readlines()
+
+    queries = [line[7:].strip() for line in log_info if line[:6] == "Query:"]
+    
+    # Remove final query since it will be unfinished
+    return queries[:-1]
+
 def kill_gpu_processes(id : str):
     print("Killing mutant GPU processes")
                             
@@ -186,7 +196,7 @@ def get_passes(stdout : str) -> int:
 
     return int(matched.group())
 
-def main():
+def check_queries():
     base = Path('/data/dev/webgpu_cts/src')
     queries = ['webgpu:*',
             'webgpu:shader,*',
@@ -197,6 +207,12 @@ def main():
         tests = get_tests_new(base,q)
         print(f'Query: {q}')
         print(f'Tests: {tests}')
+
+def main():
+    log_path = Path('/data/work/tint_mutation_testing/output/spirv_ast_printer/info.log')
+    queries = get_completed_queries(log_path)
+
+    print(f'\n\n{queries}')
 
 def getlines():
     
