@@ -78,6 +78,13 @@ def main():
                         help="Cease testing if a kill has not occurred for this length of time. Default is 24 hours. "
                              "To test indefinitely, pass 0.",
                         type=int)
+    parser.add_argument("--vk_icd",
+                        default="",
+                        help="Specify driver")
+    parser.add_argument("--dawn_vk",
+                        default="dawn:vk:7425",
+                        help="Specify driver code")
+
     args = parser.parse_args()
 
     assert args.mutation_info_file != args.mutation_info_file_for_mutant_coverage_tracking
@@ -139,6 +146,7 @@ def main():
             wgslsmith_seed = random.randint(0, 2 ** 32 - 1)
             wgslsmith_cmd = [str(args.wgslsmith_root / "wgslsmith"), "gen", "-o",
                           str(wgslsmith_generated_program)]
+            wgslsmith_test_name: str = "wgslsmith_" + str(wgslsmith_seed)
 
             print("Generating...")
             if run_process_with_timeout(cmd=wgslsmith_cmd, timeout_seconds=args.generator_timeout) is None:
@@ -162,61 +170,39 @@ def main():
                 continue
             print(f'Inputs: {inputs}')
 
-            #TODO: remove once WGSLsmith is corrected
-            # Set wgslsmith_generated_program to known correct program
-            #shutil.copyfile('/data/work/tint_mutation_testing/sample.wgsl', wgslsmith_generated_program)
-            #inputs_json : Path = Path('/data/work/tint_mutation_testing/input_sample.json') 
-
             compiler_args = ["run",
                              wgslsmith_reconditioned_program,
                              wgslsmith_input,
                              "-c",
-                             "dawn:vk:7425"] #TODO: Pass dawn config as argument
+                             args.dawn_vk]
             
             #TODO: split compile and execution into separate steps
-            '''
-            # Compile the program without mutation.
-            regular_compile_cmd = [args.mutated_compiler_executable]\
-                + compiler_args\
-                + ["-o", generated_program_exe_compiled_with_no_mutants]
-
-            compile_time_start: float = time.time()
-            regular_compile_result: ProcessResult = run_process_with_timeout(cmd=regular_compile_cmd,
-                                                                             timeout_seconds=args.compile_timeout)
-            compile_time_end: float = time.time()
-            compile_time = compile_time_end - compile_time_start
-
-            if regular_compile_result is None:
-                print("Compiler timeout.")
-                continue
-            if regular_compile_result.returncode != 0:
-                print("Compilation failed without mutants.")
-                print(f"stdout: {regular_compile_result.stdout.decode('utf-8')}")
-                print(f"stderr: {regular_compile_result.stderr.decode('utf-8')}")
-                continue
-            
-            regular_hash = hash_file(str(generated_program_exe_compiled_with_no_mutants))
-            ''' 
-            
             #run_cmd = [args.mutated_compiler_executable] + compiler_args
+
             run_cmd = [str(args.wgslsmith_root / "wgslsmith")] + compiler_args
             
             print("Running with unmutated WGSLsmith...")
             print(f'Run cmd: {run_cmd}')
             run_time_start: float = time.time()
             print(f'run timeout is {args.run_timeout}')
+
+            env = os.environ.copy()
+            env["VK_ICD_FILENAMES"] = f'{args.vk_icd}'
+
             regular_execution_result: ProcessResult = run_process_with_timeout(
-                cmd=run_cmd, timeout_seconds=args.run_timeout)
+                cmd=run_cmd, 
+                timeout_seconds=args.run_timeout,
+                env=env)
             run_time_end: float = time.time()
-            run_time = run_time_end - run_time_start
-          
+            run_time = run_time_end - run_time_start 
+
             
             if regular_execution_result is None:
                 print("Runtime timeout.")
                 continue
             if regular_execution_result.returncode != 0:
                 print(f"Std out:\n {regular_execution_result.stdout.decode('utf-8')}\n")
-                print(f"Std err:\n {regular_execution_result.stderr.decode('utf-8')}\n")
+                #print(f"Std err:\n {regular_execution_result.stderr.decode('utf-8')}\n")
                 print("Execution of generated program failed without mutants.")
                 continue
             else:
@@ -241,6 +227,8 @@ def main():
             print("Running with mutant tracking compiler...")
             tracking_environment = os.environ.copy()
             tracking_environment["DREDD_MUTANT_TRACKING_FILE"] = str(dredd_covered_mutants_path)
+            tracking_environment["VK_ICD_FILENAMES"] = f'{args.vk_icd}'
+
             tracking_compile_cmd = [args.mutant_tracking_compiler_executable]\
                 + compiler_args
             mutant_tracking_result : ProcessResult = run_process_with_timeout(cmd=tracking_compile_cmd, timeout_seconds=args.compile_timeout, env=tracking_environment) 
@@ -306,14 +294,18 @@ def main():
                     continue
                 
                 print("Trying mutant " + str(mutant))
-            
+
+                env = os.environ.copy()
+                env["VK_ICD_FILENAMES"] = f'{args.vk_icd}'
+
                 (mutant_result, mutant_result_stdout) = run_wgslsmith_test_with_mutants(mutants=[mutant],
                                                       compiler_path=str(args.mutated_compiler_executable),
                                                       compiler_args=compiler_args,
                                                       compile_time=args.compile_timeout,
                                                       run_time=run_time,
                                                       execution_result_non_mutated=regular_execution_result,
-                                                      mutant_exe_path=mutant_exe)
+                                                      mutant_exe_path=mutant_exe,
+                                                      env=env)
                 print("Mutant result: " + str(mutant_result))
                  
                 if mutant_result == KillStatus.SURVIVED_IDENTICAL \
@@ -328,7 +320,6 @@ def main():
                 time_of_last_kill = time.time()
                 print(f"Kill! Mutants killed so far: {len(killed_mutants)}")
                 
-                wgslsmith_test_name: str = "wgslsmith_" + str(wgslsmith_seed)
 
                 try:
                     mutant_path.mkdir()
@@ -367,6 +358,7 @@ def main():
             print('Saving kill summary...')
             
             test_output_directory: Path = Path(args.mutant_kill_path, f'tests/{wgslsmith_test_name}')
+            
             try:
                 test_output_directory.mkdir()
             except FileExistsError:
