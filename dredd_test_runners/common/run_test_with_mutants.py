@@ -79,8 +79,12 @@ def run_wgslsmith_test_with_mutants(mutants: List[int],
                           compile_time: float,
                           run_time: float,
                           execution_result_non_mutated: ProcessResult,
-                          mutant_exe_path: Path) -> tuple[KillStatus, ProcessResult]:
-    mutated_environment = os.environ.copy()
+                          mutant_exe_path: Path,
+                          env=None) -> tuple[KillStatus, ProcessResult]:
+    if env:
+        mutated_environment = env
+    else:
+        mutated_environment = os.environ.copy()
     mutated_environment["DREDD_ENABLED_MUTATION"] = ','.join([str(m) for m in mutants])
     
     if mutant_exe_path.exists():
@@ -132,7 +136,10 @@ def run_webgpu_cts_test_with_mutants(mutants: List[int],
                           reliable_tests : list[str],
                           env = None) -> tuple[CTSKillStatus, list]:
 
-    mutated_environment = env
+    if env:
+        mutated_environment = env
+    else:
+        mutated_environment = os.environ.copy()
     mutated_environment["DREDD_ENABLED_MUTATION"] = ','.join([str(m) for m in mutants])
     
     mutated_result: ProcessResult = run_process_with_timeout(
